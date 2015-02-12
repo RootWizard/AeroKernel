@@ -31,6 +31,7 @@
 #include <linux/debugfs.h>
 #include <asm/unaligned.h>
 #include <linux/pinctrl/consumer.h>
+#include <linux/moduleparam.h>
 
 #include "xhci.h"
 
@@ -89,6 +90,10 @@
  * default HSIC interrupt moderation to 12000 (or 3ms interval)
  */
 #define MSM_HSIC_INT_MODERATION 12000
+
+#define WL_TIMEOUT 2000
+static int wl_divide = 1;
+module_param(wl_divide, int, 0644);
 
 static u64 dma_mask = DMA_BIT_MASK(64);
 
@@ -688,8 +693,7 @@ static irqreturn_t mxhci_hsic_wakeup_irq(int irq, void *data)
 			mxhci->wakeup_int_cnt);
 
 	if (wl_divide == 1) pm_stay_awake(mxhci->dev);
-	else if (wl_divide > 1) pm_wakeup_event(mxhci->dev, 
-		WL_TIMEOUT/wl_divide);
+	else pm_wakeup_event(mxhci->dev, WL_TIMEOUT/wl_divide);
 
 	spin_lock(&mxhci->wakeup_lock);
 	if (mxhci->wakeup_irq_enabled) {
@@ -945,8 +949,7 @@ static int mxhci_hsic_resume(struct mxhci_hsic_hcd *mxhci)
 	}
 
 	if (wl_divide == 1) pm_stay_awake(mxhci->dev);
-	else if (wl_divide > 1) pm_wakeup_event(mxhci->dev, 
-		WL_TIMEOUT/wl_divide);
+	else pm_wakeup_event(mxhci->dev, WL_TIMEOUT/wl_divide);
 
 	/* enable force-on mode for periph_on */
 	clk_set_flags(mxhci->system_clk, CLKFLAG_RETAIN_PERIPH);
@@ -1533,8 +1536,7 @@ static int mxhci_hsic_probe(struct platform_device *pdev)
 
 	device_init_wakeup(&pdev->dev, 1);
 	if (wl_divide == 1) pm_stay_awake(mxhci->dev);
-	else if (wl_divide > 1) pm_wakeup_event(mxhci->dev, 
-		WL_TIMEOUT/wl_divide);
+	else pm_wakeup_event(mxhci->dev, WL_TIMEOUT/wl_divide);
 
 	pm_runtime_set_active(&pdev->dev);
 	pm_runtime_enable(&pdev->dev);

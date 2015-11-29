@@ -116,9 +116,8 @@ static void *f2fs_acl_to_disk(struct f2fs_sb_info *sbi,
 	struct f2fs_acl_entry *entry;
 	int i;
 
-	f2fs_acl = f2fs_kmalloc(sbi, sizeof(struct f2fs_acl_header) +
-			acl->a_count * sizeof(struct f2fs_acl_entry),
-			GFP_NOFS);
+	f2fs_acl = kmalloc(sizeof(struct f2fs_acl_header) + acl->a_count *
+			sizeof(struct f2fs_acl_entry), GFP_NOFS);
 	if (!f2fs_acl)
 		return ERR_PTR(-ENOMEM);
 
@@ -185,7 +184,7 @@ static struct posix_acl *__f2fs_get_acl(struct inode *inode, int type,
 
 	retval = f2fs_getxattr(inode, name_index, "", NULL, 0, dpage);
 	if (retval > 0) {
-		value = f2fs_kmalloc(F2FS_I_SB(inode), retval, GFP_F2FS_ZERO);
+		value = kmalloc(retval, GFP_F2FS_ZERO);
 		if (!value)
 			return ERR_PTR(-ENOMEM);
 		retval = f2fs_getxattr(inode, name_index, "", value,
@@ -253,7 +252,7 @@ static int f2fs_set_acl(struct inode *inode, int type,
 	if (acl) {
 		value = f2fs_acl_to_disk(F2FS_I_SB(inode), acl, &size);
 		if (IS_ERR(value)) {
-			clear_inode_flag(inode, FI_ACL_MODE);
+			clear_inode_flag(fi, FI_ACL_MODE);
 			return (int)PTR_ERR(value);
 		}
 	}
@@ -264,7 +263,7 @@ static int f2fs_set_acl(struct inode *inode, int type,
 	if (!error)
 		set_cached_acl(inode, type, acl);
 
-	clear_inode_flag(inode, FI_ACL_MODE);
+	clear_inode_flag(fi, FI_ACL_MODE);
 	return error;
 }
 
@@ -298,8 +297,6 @@ int f2fs_init_acl(struct inode *inode, struct inode *dir, struct page *ipage,
 		return error;
 	if (error > 0)
 		error = f2fs_set_acl(inode, ACL_TYPE_ACCESS, acl, ipage);
-
-	f2fs_mark_inode_dirty_sync(inode);
 cleanup:
 	posix_acl_release(acl);
 	return error;

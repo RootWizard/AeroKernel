@@ -17,7 +17,6 @@
 		{ META_FLUSH,	"META_FLUSH" },				\
 		{ INMEM,	"INMEM" },				\
 		{ INMEM_DROP,	"INMEM_DROP" },				\
-		{ INMEM_REVOKE,	"INMEM_REVOKE" },			\
 		{ IPU,		"IN-PLACE" },				\
 		{ OPU,		"OUT-OF-PLACE" })
 
@@ -659,7 +658,7 @@ TRACE_EVENT(f2fs_direct_IO_exit,
 		__entry->ret)
 );
 
-TRACE_EVENT(f2fs_reserve_new_blocks,
+TRACE_EVENT(f2fs_reserve_new_block,
 
 	TP_PROTO(struct inode *inode, nid_t nid, unsigned int ofs_in_node,
 							blkcnt_t count),
@@ -719,6 +718,57 @@ DECLARE_EVENT_CLASS(f2fs__submit_page_bio,
 		(unsigned long)__entry->index,
 		(unsigned long long)__entry->old_blkaddr,
 		(unsigned long long)__entry->new_blkaddr,
+		show_bio_type(__entry->rw),
+		show_block_type(__entry->type))
+);
+
+DEFINE_EVENT_CONDITION(f2fs__submit_page_bio, f2fs_submit_page_bio,
+
+	TP_PROTO(struct page *page, struct f2fs_io_info *fio),
+
+	TP_ARGS(page, fio),
+
+	TP_CONDITION(page->mapping)
+);
+
+DEFINE_EVENT_CONDITION(f2fs__submit_page_bio, f2fs_submit_page_mbio,
+
+	TP_PROTO(struct page *page, struct f2fs_io_info *fio),
+
+	TP_ARGS(page, fio),
+
+	TP_CONDITION(page->mapping)
+);
+
+DECLARE_EVENT_CLASS(f2fs__submit_page_bio,
+
+	TP_PROTO(struct page *page, struct f2fs_io_info *fio),
+
+	TP_ARGS(page, fio),
+
+	TP_STRUCT__entry(
+		__field(dev_t, dev)
+		__field(ino_t, ino)
+		__field(pgoff_t, index)
+		__field(block_t, blkaddr)
+		__field(int, rw)
+		__field(int, type)
+	),
+
+	TP_fast_assign(
+		__entry->dev		= page->mapping->host->i_sb->s_dev;
+		__entry->ino		= page->mapping->host->i_ino;
+		__entry->index		= page->index;
+		__entry->blkaddr	= fio->blk_addr;
+		__entry->rw		= fio->rw;
+		__entry->type		= fio->type;
+	),
+
+	TP_printk("dev = (%d,%d), ino = %lu, page_index = 0x%lx, "
+		"blkaddr = 0x%llx, rw = %s%s, type = %s",
+		show_dev_ino(__entry),
+		(unsigned long)__entry->index,
+		(unsigned long long)__entry->blkaddr,
 		show_bio_type(__entry->rw),
 		show_block_type(__entry->type))
 );
@@ -1233,44 +1283,6 @@ TRACE_EVENT(f2fs_destroy_extent_tree,
 	TP_printk("dev = (%d,%d), ino = %lu, destroyed: node_cnt = %u",
 		show_dev_ino(__entry),
 		__entry->node_cnt)
-);
-
-DECLARE_EVENT_CLASS(f2fs_sync_dirty_inodes,
-
-	TP_PROTO(struct super_block *sb, int type, s64 count),
-
-	TP_ARGS(sb, type, count),
-
-	TP_STRUCT__entry(
-		__field(dev_t, dev)
-		__field(int, type)
-		__field(s64, count)
-	),
-
-	TP_fast_assign(
-		__entry->dev	= sb->s_dev;
-		__entry->type	= type;
-		__entry->count	= count;
-	),
-
-	TP_printk("dev = (%d,%d), %s, dirty count = %lld",
-		show_dev(__entry),
-		show_file_type(__entry->type),
-		__entry->count)
-);
-
-DEFINE_EVENT(f2fs_sync_dirty_inodes, f2fs_sync_dirty_inodes_enter,
-
-	TP_PROTO(struct super_block *sb, int type, s64 count),
-
-	TP_ARGS(sb, type, count)
-);
-
-DEFINE_EVENT(f2fs_sync_dirty_inodes, f2fs_sync_dirty_inodes_exit,
-
-	TP_PROTO(struct super_block *sb, int type, s64 count),
-
-	TP_ARGS(sb, type, count)
 );
 
 #endif /* _TRACE_F2FS_H */

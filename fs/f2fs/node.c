@@ -1135,12 +1135,13 @@ repeat:
 	if (err < 0) {
 		f2fs_put_page(page, 1);
 		return ERR_PTR(err);
-	} else if (err != LOCKED_PAGE) {
-		lock_page(page);
+	} else if (err == LOCKED_PAGE) {
+		goto page_hit;
 	}
 
-	if (unlikely(!PageUptodate(page) || nid != nid_of_node(page))) {
-		ClearPageUptodate(page);
+	lock_page(page);
+
+	if (unlikely(!PageUptodate(page))) {
 		f2fs_put_page(page, 1);
 		return ERR_PTR(-EIO);
 	}
@@ -1148,15 +1149,9 @@ repeat:
 		f2fs_put_page(page, 1);
 		goto repeat;
 	}
+page_hit:
 	mark_page_accessed(page);
-
-	if(unlikely(nid != nid_of_node(page))) {
-		f2fs_bug_on(sbi, 1);
-		ClearPageUptodate(page);
-out_err:
-		f2fs_put_page(page, 1);
-		return ERR_PTR(-EIO);
-	}
+	f2fs_bug_on(sbi, nid != nid_of_node(page));
 	return page;
 }
 
@@ -1192,23 +1187,31 @@ repeat:
 	if (!PageUptodate(page))
 		goto page_out;
 
-	if (!PageDirty(page))
-		goto page_out;
+	/* Then, try readahead for siblings of the desired node */
+	end = start + MAX_RA_NODE;
+	end = min(end, NIDS_PER_BLOCK);
+	for (i = start + 1; i < end; i++) {
+		nid_t tnid = get_nid(parent, i, false);
+		if (!tnid)
+			continue;
+		ra_node_page(sbi, tnid);
+	}
 
 	if (!clear_page_dirty_for_io(page))
 		goto page_out;
 
 	lock_page(page);
+	if (unlikely(!PageUptodate(page))) {
+		f2fs_put_page(page, 1);
+		return ERR_PTR(-EIO);
+	}
 	if (unlikely(page->mapping != NODE_MAPPING(sbi))) {
 		f2fs_put_page(page, 1);
 		goto repeat;
 	}
 page_hit:
-	if (unlikely(!PageUptodate(page))) {
-		f2fs_put_page(page, 1);
-		return ERR_PTR(-EIO);
-	}
 	mark_page_accessed(page);
+	f2fs_bug_on(sbi, nid != nid_of_node(page));
 	return page;
 }
 

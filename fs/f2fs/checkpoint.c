@@ -751,6 +751,20 @@ static void __add_dirty_inode(struct inode *inode)
 	return;
 }
 
+static void __remove_dirty_inode(struct inode *inode)
+{
+	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
+	struct f2fs_inode_info *fi = F2FS_I(inode);
+
+	if (get_dirty_pages(inode) ||
+			!is_inode_flag_set(F2FS_I(inode), FI_DIRTY_DIR))
+		return;
+
+	list_del_init(&fi->dirty_list);
+	clear_inode_flag(fi, FI_DIRTY_DIR);
+	stat_dec_dirty_dir(sbi);
+}
+
 void update_dirty_page(struct inode *inode, struct page *page)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
@@ -793,15 +807,7 @@ void update_dirty_page(struct inode *inode, struct page *page)
 		return;
 
 	spin_lock(&sbi->dir_inode_lock);
-	if (get_dirty_pages(inode) ||
-			!is_inode_flag_set(F2FS_I(inode), FI_DIRTY_DIR)) {
-		spin_unlock(&sbi->dir_inode_lock);
-		return;
-	}
-
-	list_del_init(&fi->dirty_list);
-	clear_inode_flag(fi, FI_DIRTY_DIR);
-	stat_dec_dirty_dir(sbi);
+	__remove_dirty_inode(inode);
 	spin_unlock(&sbi->dir_inode_lock);
 
 	/* Only from the recovery routine */

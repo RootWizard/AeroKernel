@@ -584,11 +584,8 @@ static void f2fs_put_super(struct super_block *sb)
 	wait_for_completion(&sbi->s_kobj_unregister);
 
 	sb->s_fs_info = NULL;
-	if (sbi->s_chksum_driver)
-		crypto_free_shash(sbi->s_chksum_driver);
+	brelse(sbi->raw_super_buf);
 	kfree(sbi->raw_super);
-
-	destroy_percpu_info(sbi);
 	kfree(sbi);
 }
 
@@ -1160,6 +1157,9 @@ static int read_raw_super_block(struct super_block *sb,
 	struct f2fs_super_block *super;
 	int err = 0;
 
+	super = kzalloc(sizeof(struct f2fs_super_block), GFP_KERNEL);
+	if (!super)
+		return -ENOMEM;
 retry:
 	buffer = sb_bread(sb, block);
 	if (!buffer) {
@@ -1175,8 +1175,7 @@ retry:
 		}
 	}
 
-	super = (struct f2fs_super_block *)
-		((char *)(buffer)->b_data + F2FS_SUPER_OFFSET);
+	memcpy(super, buffer->b_data + F2FS_SUPER_OFFSET, sizeof(*super));
 
 	/* sanity checking of raw super */
 	if (sanity_check_raw_super(sb, super)) {
@@ -1210,14 +1209,17 @@ retry:
 
 out:
 	/* No valid superblock */
-	if (!*raw_super)
+	if (!*raw_super) {
+		kfree(super);
 		return err;
+	}
 
 	return 0;
 }
 
 int f2fs_commit_super(struct f2fs_sb_info *sbi, bool recover)
 {
+	struct f2fs_super_block *super = F2FS_RAW_SUPER(sbi);
 	struct buffer_head *sbh = sbi->raw_super_buf;
 	struct buffer_head *bh;
 	int err;
@@ -1228,7 +1230,7 @@ int f2fs_commit_super(struct f2fs_sb_info *sbi, bool recover)
 		return -EIO;
 
 	lock_buffer(bh);
-	memcpy(bh->b_data, sbh->b_data, sbh->b_size);
+	memcpy(bh->b_data + F2FS_SUPER_OFFSET, super, sizeof(*super));
 	WARN_ON(sbh->b_size != F2FS_BLKSIZE);
 	set_buffer_uptodate(bh);
 	set_buffer_dirty(bh);
@@ -1244,6 +1246,10 @@ int f2fs_commit_super(struct f2fs_sb_info *sbi, bool recover)
 
 	/* write current valid superblock */
 	lock_buffer(sbh);
+	if (memcmp(sbh->b_data + F2FS_SUPER_OFFSET, super, sizeof(*super))) {
+		f2fs_msg(sbi->sb, KERN_INFO, "Write modified valid superblock");
+		memcpy(sbh->b_data + F2FS_SUPER_OFFSET, super, sizeof(*super));
+	}
 	set_buffer_dirty(sbh);
 	unlock_buffer(sbh);
 
@@ -1531,6 +1537,7 @@ free_meta_inode:
 free_options:
 	kfree(options);
 free_sb_buf:
+	brelse(raw_super_buf);
 	kfree(raw_super);
 free_sbi:
 	if (sbi->s_chksum_driver)

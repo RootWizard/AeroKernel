@@ -51,6 +51,7 @@
 #define MAX_ACTIVE_DATA_LOGS	8
 
 #define VERSION_LEN	256
+#define MAX_VOLUME_NAME		512
 
 /*
  * For superblock

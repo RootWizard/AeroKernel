@@ -1446,8 +1446,7 @@ next_step:
 
 			if (unlikely(f2fs_cp_error(sbi))) {
 				pagevec_release(&pvec);
-				ret = -EIO;
-				goto out;
+				return -EIO;
 			}
 
 			/*

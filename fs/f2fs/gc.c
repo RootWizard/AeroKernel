@@ -871,7 +871,8 @@ gc_more:
 
 	if (unlikely(!(sbi->sb->s_flags & MS_ACTIVE)))
 		goto stop;
-	if (unlikely(f2fs_cp_error(sbi)))
+	if (unlikely(f2fs_cp_error(sbi))) {
+		ret = -EIO;
 		goto stop;
 	}
 

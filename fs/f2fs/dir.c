@@ -173,8 +173,6 @@ static struct f2fs_dir_entry *find_in_level(struct inode *dir,
 
 	namehash = f2fs_dentry_hash(&name);
 
-	f2fs_bug_on(F2FS_I_SB(dir), level > MAX_DIR_HASH_DEPTH);
-
 	nbucket = dir_buckets(level, F2FS_I(dir)->i_dir_level);
 	nblock = bucket_blocks(level);
 
@@ -249,7 +247,8 @@ struct f2fs_dir_entry *f2fs_find_entry(struct inode *dir, struct qstr *child,
 				"Corrupted max_depth of %lu: %u",
 				dir->i_ino, max_depth);
 		max_depth = MAX_DIR_HASH_DEPTH;
-		f2fs_i_depth_write(dir, max_depth);
+		F2FS_I(dir)->i_current_depth = max_depth;
+		mark_inode_dirty(dir);
 	}
 
 	for (level = 0; level < max_depth; level++) {

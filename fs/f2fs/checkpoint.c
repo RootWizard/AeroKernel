@@ -242,7 +242,7 @@ static int f2fs_write_meta_page(struct page *page,
 
 	unlock_page(page);
 
-	if (wbc->for_reclaim)
+	if (wbc->for_reclaim || unlikely(f2fs_cp_error(sbi)))
 		f2fs_submit_merged_bio(sbi, META, WRITE);
 	return 0;
 

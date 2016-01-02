@@ -263,13 +263,11 @@ static void cache_nat_entry(struct f2fs_sb_info *sbi, nid_t nid,
 	struct f2fs_nm_info *nm_i = NM_I(sbi);
 	struct nat_entry *e;
 
-	down_write(&nm_i->nat_tree_lock);
 	e = __lookup_nat_cache(nm_i, nid);
 	if (!e) {
 		e = grab_nat_entry(nm_i, nid);
 		node_info_from_raw_nat(&e->ni, ne);
 	}
-	up_write(&nm_i->nat_tree_lock);
 }
 
 static void set_node_addr(struct f2fs_sb_info *sbi, struct node_info *ni,
@@ -384,6 +382,8 @@ void get_node_info(struct f2fs_sb_info *sbi, nid_t nid, struct node_info *ni)
 
 	memset(&ne, 0, sizeof(struct f2fs_nat_entry));
 
+	down_write(&nm_i->nat_tree_lock);
+
 	/* Check current segment summary */
 	down_read(&curseg->journal_rwsem);
 	i = lookup_journal_in_cursum(journal, NAT_JOURNAL, nid, 0);
@@ -404,63 +404,8 @@ void get_node_info(struct f2fs_sb_info *sbi, nid_t nid, struct node_info *ni)
 cache:
 	up_read(&nm_i->nat_tree_lock);
 	/* cache nat entry */
-	down_write(&nm_i->nat_tree_lock);
-	cache_nat_entry(sbi, nid, &ne);
+	cache_nat_entry(NM_I(sbi), nid, &ne);
 	up_write(&nm_i->nat_tree_lock);
-}
-
-/*
- * readahead MAX_RA_NODE number of node pages.
- */
-static void ra_node_pages(struct page *parent, int start, int n)
-{
-	struct f2fs_sb_info *sbi = F2FS_P_SB(parent);
-	struct blk_plug plug;
-	int i, end;
-	nid_t nid;
-
-	blk_start_plug(&plug);
-
-	/* Then, try readahead for siblings of the desired node */
-	end = start + n;
-	end = min(end, NIDS_PER_BLOCK);
-	for (i = start; i < end; i++) {
-		nid = get_nid(parent, i, false);
-		ra_node_page(sbi, nid);
-	}
-
-	blk_finish_plug(&plug);
-}
-
-pgoff_t get_next_page_offset(struct dnode_of_data *dn, pgoff_t pgofs)
-{
-	const long direct_index = ADDRS_PER_INODE(dn->inode);
-	const long direct_blks = ADDRS_PER_BLOCK;
-	const long indirect_blks = ADDRS_PER_BLOCK * NIDS_PER_BLOCK;
-	unsigned int skipped_unit = ADDRS_PER_BLOCK;
-	int cur_level = dn->cur_level;
-	int max_level = dn->max_level;
-	pgoff_t base = 0;
-
-	if (!dn->max_level)
-		return pgofs + 1;
-
-	while (max_level-- > cur_level)
-		skipped_unit *= NIDS_PER_BLOCK;
-
-	switch (dn->max_level) {
-	case 3:
-		base += 2 * indirect_blks;
-	case 2:
-		base += 2 * direct_blks;
-	case 1:
-		base += direct_index;
-		break;
-	default:
-		f2fs_bug_on(F2FS_I_SB(dn->inode), 1);
-	}
-
-	return ((pgofs - base) / skipped_unit + 1) * skipped_unit + base;
 }
 
 /*
@@ -1741,13 +1686,10 @@ static int add_free_nid(struct f2fs_sb_info *sbi, nid_t nid, bool build)
 
 	if (build) {
 		/* do not add allocated nids */
-		down_read(&nm_i->nat_tree_lock);
 		ne = __lookup_nat_cache(nm_i, nid);
-		if (ne &&
-			(!get_nat_flag(ne, IS_CHECKPOINTED) ||
+		if (ne && (!get_nat_flag(ne, IS_CHECKPOINTED) ||
 				nat_get_blkaddr(ne) != NULL_ADDR))
 			allocated = true;
-		up_read(&nm_i->nat_tree_lock);
 		if (allocated)
 			return 0;
 	}
@@ -1833,6 +1775,8 @@ void build_free_nids(struct f2fs_sb_info *sbi)
 	ra_meta_pages(sbi, NAT_BLOCK_OFFSET(nid), FREE_NID_PAGES,
 							META_NAT, true);
 
+	down_read(&nm_i->nat_tree_lock);
+
 	while (1) {
 		struct page *page = get_current_nat_page(sbi, nid);
 
@@ -1863,6 +1807,7 @@ void build_free_nids(struct f2fs_sb_info *sbi)
 			remove_free_nid(nm_i, nid);
 	}
 	mutex_unlock(&curseg->curseg_mutex);
+	up_read(&nm_i->nat_tree_lock);
 
 	ra_meta_pages(sbi, NAT_BLOCK_OFFSET(nm_i->next_scan_nid),
 					nm_i->ra_nid_pages, META_NAT, false);
@@ -2147,14 +2092,12 @@ static void remove_nats_in_journal(struct f2fs_sb_info *sbi)
 
 		raw_ne = nat_in_journal(sum, i);
 
-		down_write(&nm_i->nat_tree_lock);
 		ne = __lookup_nat_cache(nm_i, nid);
 		if (!ne) {
 			ne = grab_nat_entry(nm_i, nid);
 			node_info_from_raw_nat(&ne->ni, &raw_ne);
 		}
 		__set_nat_cache_dirty(nm_i, ne);
-		up_write(&nm_i->nat_tree_lock);
 	}
 	update_nats_in_cursum(sum, -i);
 	mutex_unlock(&curseg->curseg_mutex);
@@ -2188,7 +2131,6 @@ static void __flush_nat_entry_set(struct f2fs_sb_info *sbi,
 	struct f2fs_nat_block *nat_blk;
 	struct nat_entry *ne, *cur;
 	struct page *page = NULL;
-	struct f2fs_nm_info *nm_i = NM_I(sbi);
 
 	/*
 	 * there are two steps to flush nat entries:
@@ -2225,12 +2167,8 @@ static void __flush_nat_entry_set(struct f2fs_sb_info *sbi,
 			raw_ne = &nat_blk->entries[nid - start_nid];
 		}
 		raw_nat_from_node_info(raw_ne, &ne->ni);
-
-		down_write(&NM_I(sbi)->nat_tree_lock);
 		nat_reset_flag(ne);
 		__clear_nat_cache_dirty(NM_I(sbi), ne);
-		up_write(&NM_I(sbi)->nat_tree_lock);
-
 		if (nat_get_blkaddr(ne) == NULL_ADDR)
 			add_free_nid(sbi, nid, false);
 	}
@@ -2242,9 +2180,7 @@ static void __flush_nat_entry_set(struct f2fs_sb_info *sbi,
 
 	f2fs_bug_on(sbi, set->entry_cnt);
 
-	down_write(&nm_i->nat_tree_lock);
 	radix_tree_delete(&NM_I(sbi)->nat_set_root, set->set);
-	up_write(&nm_i->nat_tree_lock);
 	kmem_cache_free(nat_entry_set_slab, set);
 }
 
@@ -2264,6 +2200,9 @@ void flush_nat_entries(struct f2fs_sb_info *sbi)
 
 	if (!nm_i->dirty_nat_cnt)
 		return;
+
+	down_write(&nm_i->nat_tree_lock);
+
 	/*
 	 * if there are no enough space in journal to store dirty nat
 	 * entries, remove all entries from journal and merge them
@@ -2272,7 +2211,6 @@ void flush_nat_entries(struct f2fs_sb_info *sbi)
 	if (!__has_cursum_space(sum, nm_i->dirty_nat_cnt, NAT_JOURNAL))
 		remove_nats_in_journal(sbi);
 
-	down_write(&nm_i->nat_tree_lock);
 	while ((found = __gang_lookup_nat_set(nm_i,
 					set_idx, SETVEC_SIZE, setvec))) {
 		unsigned idx;
@@ -2281,11 +2219,12 @@ void flush_nat_entries(struct f2fs_sb_info *sbi)
 			__adjust_nat_entry_set(setvec[idx], &sets,
 							MAX_NAT_JENTRIES(sum));
 	}
-	up_write(&nm_i->nat_tree_lock);
 
 	/* flush dirty nats in nat entry set */
 	list_for_each_entry_safe(set, tmp, &sets, set_list)
 		__flush_nat_entry_set(sbi, set);
+
+	up_write(&nm_i->nat_tree_lock);
 
 	f2fs_bug_on(sbi, nm_i->dirty_nat_cnt);
 }

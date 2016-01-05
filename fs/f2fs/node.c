@@ -1068,7 +1068,29 @@ void ra_node_page(struct f2fs_sb_info *sbi, nid_t nid)
 	f2fs_put_page(apage, err ? 1 : 0);
 }
 
-static struct page *__get_node_page(struct f2fs_sb_info *sbi, pgoff_t nid,
+/*
+ * readahead MAX_RA_NODE number of node pages.
+ */
+void ra_node_pages(struct page *parent, int start)
+{
+	struct f2fs_sb_info *sbi = F2FS_P_SB(parent);
+	struct blk_plug plug;
+	int i, end;
+	nid_t nid;
+
+	blk_start_plug(&plug);
+
+	/* Then, try readahead for siblings of the desired node */
+	end = start + MAX_RA_NODE;
+	end = min(end, NIDS_PER_BLOCK);
+	for (i = start; i < end; i++) {
+		nid = get_nid(parent, i, false);
+		ra_node_page(sbi, nid);
+	}
+	blk_finish_plug(&plug);
+}
+
+struct page *__get_node_page(struct f2fs_sb_info *sbi, pgoff_t nid,
 					struct page *parent, int start)
 {
 	struct page *page;
@@ -1089,6 +1111,9 @@ repeat:
 	} else if (err == LOCKED_PAGE) {
 		goto page_hit;
 	}
+
+	if (parent)
+		ra_node_pages(parent, start + 1);
 
 	lock_page(page);
 
@@ -1114,57 +1139,9 @@ struct page *get_node_page(struct f2fs_sb_info *sbi, pgoff_t nid)
 struct page *get_node_page_ra(struct page *parent, int start)
 {
 	struct f2fs_sb_info *sbi = F2FS_P_SB(parent);
-	struct blk_plug plug;
-	struct page *page;
-	int ret;
+	nid_t nid = get_nid(parent, start, false);
 
-	/* First, try getting the desired direct node. */
-	nid = get_nid(parent, start, false);
-	if (!nid)
-		return ERR_PTR(-ENOENT);
-	f2fs_bug_on(sbi, check_nid_range(sbi, nid));
-repeat:
-	page = grab_cache_page(NODE_MAPPING(sbi), nid);
-	if (!page)
-		goto iput_out;
-
-	err = read_node_page(page, READ_SYNC);
-	if (err < 0) {
-		f2fs_put_page(page, 1);
-		return ERR_PTR(err);
-	} else if (err == LOCKED_PAGE) {
-		goto page_hit;
-	}
-
-	if (!PageUptodate(page))
-		goto page_out;
-
-	/* Then, try readahead for siblings of the desired node */
-	end = start + MAX_RA_NODE;
-	end = min(end, NIDS_PER_BLOCK);
-	for (i = start + 1; i < end; i++) {
-		nid_t tnid;
-
-		tnid = get_nid(parent, i, false);
-		ra_node_page(sbi, tnid);
-	}
-
-	if (!clear_page_dirty_for_io(page))
-		goto page_out;
-
-	lock_page(page);
-	if (unlikely(!PageUptodate(page))) {
-		f2fs_put_page(page, 1);
-		return ERR_PTR(-EIO);
-	}
-	if (unlikely(page->mapping != NODE_MAPPING(sbi))) {
-		f2fs_put_page(page, 1);
-		goto repeat;
-	}
-page_hit:
-	mark_page_accessed(page);
-	f2fs_bug_on(sbi, nid != nid_of_node(page));
-	return page;
+	return __get_node_page(sbi, nid, parent, start);
 }
 
 void move_node_page(struct page *node_page, int gc_type)

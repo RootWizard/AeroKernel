@@ -220,8 +220,8 @@ void set_data_blkaddr(struct dnode_of_data *dn)
 	/* Get physical address of data block */
 	addr_array = blkaddr_in_node(rn);
 	addr_array[ofs_in_node] = cpu_to_le32(dn->data_blkaddr);
-	set_page_dirty(node_page);
-	dn->node_changed = true;
+	if (set_page_dirty(node_page))
+		dn->node_changed = true;
 }
 
 static inline void __submit_bio(struct f2fs_sb_info *sbi, int rw,

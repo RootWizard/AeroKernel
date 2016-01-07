@@ -272,7 +272,7 @@ int commit_inmem_pages(struct inode *inode, bool abort)
 	 * inode becomes free by iget_locked in f2fs_iget.
 	 */
 	if (!abort) {
-		f2fs_balance_fs(sbi);
+		f2fs_balance_fs(sbi, true);
 		f2fs_lock_op(sbi);
 	}
 
@@ -323,18 +323,8 @@ int commit_inmem_pages(struct inode *inode, bool abort)
  */
 void f2fs_balance_fs(struct f2fs_sb_info *sbi, bool need)
 {
-#ifdef CONFIG_F2FS_FAULT_INJECTION
-	if (time_to_inject(sbi, FAULT_CHECKPOINT))
-		f2fs_stop_checkpoint(sbi, false);
-#endif
-
 	if (!need)
 		return;
-
-	/* balance_fs_bg is able to be pending */
-	if (excess_cached_nats(sbi))
-		f2fs_balance_fs_bg(sbi);
-
 	/*
 	 * We should do GC or end up with checkpoint, if there are so many dirty
 	 * dir/node pages without enough free segments.

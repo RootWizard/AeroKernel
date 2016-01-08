@@ -730,26 +730,11 @@ enum {
 	SBI_POR_DOING,				/* recovery is doing or not */
 };
 
-/* For s_flag in struct f2fs_sb_info */
-enum {
-	SBI_IS_DIRTY,				/* dirty flag for checkpoint */
-	SBI_IS_CLOSE,				/* specify unmounting */
-	SBI_NEED_FSCK,				/* need fsck.f2fs to fix */
-	SBI_POR_DOING,				/* recovery is doing or not */
-	SBI_NEED_SB_WRITE,			/* need to recover superblock */
-	SBI_NEED_CP,				/* need to checkpoint */
-};
-
 enum {
 	CP_TIME,
-	REQ_TIME,
 	MAX_TIME,
 };
 
-#ifdef CONFIG_F2FS_FS_ENCRYPTION
-#define F2FS_KEY_DESC_PREFIX "f2fs:"
-#define F2FS_KEY_DESC_PREFIX_SIZE 5
-#endif
 struct f2fs_sb_info {
 	struct super_block *sb;			/* pointer to VFS super block */
 	struct proc_dir_entry *s_proc;		/* proc entry */
@@ -781,7 +766,8 @@ struct f2fs_sb_info {
 	struct rw_semaphore node_write;		/* locking node writes */
 	struct mutex writepages;		/* mutex for writepages() */
 	wait_queue_head_t cp_wait;
-	long cp_expires, cp_interval;		/* next expected periodic cp */
+	unsigned long last_time[MAX_TIME];	/* to store time in jiffies */
+	long interval_time[MAX_TIME];		/* to store thresholds */
 
 	struct inode_management im[MAX_INO_ENTRY];      /* manage inode cache */
 
@@ -879,37 +865,6 @@ struct f2fs_sb_info {
 	unsigned int shrinker_run_no;
 };
 
-#ifdef CONFIG_F2FS_FAULT_INJECTION
-static inline bool time_to_inject(struct f2fs_sb_info *sbi, int type)
-{
-	struct f2fs_fault_info *ffi = &sbi->fault_info;
-
-	if (!ffi->inject_rate)
-		return false;
-
-	if (!IS_FAULT_SET(ffi, type))
-		return false;
-
-	atomic_inc(&ffi->inject_ops);
-	if (atomic_read(&ffi->inject_ops) >= ffi->inject_rate) {
-		atomic_set(&ffi->inject_ops, 0);
-		printk("%sF2FS-fs : inject %s in %pF\n",
-				KERN_INFO,
-				fault_name[type],
-				__builtin_return_address(0));
-		return true;
-	}
-	return false;
-}
-#endif
-
-/* For write statistics. Suppose sector size is 512 bytes,
- * and the return value is in kbytes. s is of struct f2fs_sb_info.
- */
-#define BD_PART_WRITTEN(s)						 \
-(((u64)part_stat_read(s->sb->s_bdev->bd_part, sectors[1]) -		 \
-		s->sectors_written_start) >> 1)
-
 static inline void f2fs_update_time(struct f2fs_sb_info *sbi, int type)
 {
 	sbi->last_time[type] = jiffies;
@@ -921,18 +876,6 @@ static inline bool f2fs_time_over(struct f2fs_sb_info *sbi, int type)
 	unsigned long interval = timespec_to_jiffies(&ts);
 
 	return time_after(jiffies, sbi->last_time[type] + interval);
-}
-
-static inline bool is_idle(struct f2fs_sb_info *sbi)
-{
-	struct block_device *bdev = sbi->sb->s_bdev;
-	struct request_queue *q = bdev_get_queue(bdev);
-	struct request_list *rl = &q->root_rl;
-
-	if (rl->count[BLK_RW_SYNC] || rl->count[BLK_RW_ASYNC])
-		return 0;
-
-	return f2fs_time_over(sbi, REQ_TIME);
 }
 
 /*

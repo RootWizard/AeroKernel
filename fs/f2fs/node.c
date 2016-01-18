@@ -1357,8 +1357,13 @@ int wait_on_node_pages_writeback(struct f2fs_sb_info *sbi, nid_t ino)
 		for (i = 0; i < nr_pages; i++) {
 			struct page *page = pvec.pages[i];
 
-	if (wrote)
-		f2fs_submit_merged_bio(sbi, NODE, WRITE);
+	if (wrote) {
+		if (ino)
+			f2fs_submit_merged_bio_cond(sbi, NULL, NULL,
+							ino, NODE, WRITE);
+		else
+			f2fs_submit_merged_bio(sbi, NODE, WRITE);
+	}
 	return nwritten;
 }
 
@@ -1453,9 +1458,13 @@ static int f2fs_write_node_page(struct page *page,
 	set_node_addr(sbi, &ni, fio.blk_addr, is_fsync_dnode(page));
 	dec_page_count(sbi, F2FS_DIRTY_NODES);
 	up_read(&sbi->node_write);
+
+	if (wbc->for_reclaim)
+		f2fs_submit_merged_bio_cond(sbi, NULL, page, 0, NODE, WRITE);
+
 	unlock_page(page);
 
-	if (wbc->for_reclaim || unlikely(f2fs_cp_error(sbi)))
+	if (unlikely(f2fs_cp_error(sbi)))
 		f2fs_submit_merged_bio(sbi, NODE, WRITE);
 
 	return 0;

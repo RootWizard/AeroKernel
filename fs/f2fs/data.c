@@ -1628,9 +1628,8 @@ static int f2fs_write_data_pages(struct address_space *mapping,
 
 	diff = nr_pages_to_write(sbi, DATA, wbc);
 
-	if (f2fs_has_inline_data(inode) ||
-			(pos & PAGE_MASK) >= i_size_read(inode)) {
-		f2fs_lock_op(sbi);
+	if (!S_ISDIR(inode->i_mode) && wbc->sync_mode == WB_SYNC_ALL) {
+		mutex_lock(&sbi->writepages);
 		locked = true;
 	}
 	ret = f2fs_write_cache_pages(mapping, wbc, __f2fs_writepage, mapping);

@@ -417,7 +417,7 @@ static int check_valid_map(struct f2fs_sb_info *sbi,
  * On validity, copy that node with cold status, otherwise (invalid node)
  * ignore that.
  */
-static int gc_node_segment(struct f2fs_sb_info *sbi,
+static void gc_node_segment(struct f2fs_sb_info *sbi,
 		struct f2fs_summary *sum, unsigned int segno, int gc_type)
 {
 	struct f2fs_summary *entry;
@@ -439,7 +439,7 @@ next_step:
 
 		/* stop BG_GC if there is not enough free sections. */
 		if (gc_type == BG_GC && has_not_enough_free_secs(sbi, 0))
-			return 0;
+			return;
 
 		if (check_valid_map(sbi, segno, off) == 0)
 			continue;
@@ -484,17 +484,10 @@ next_step:
 		stat_inc_node_blk_count(sbi, 1, gc_type);
 	}
 
-		get_node_info(sbi, nid, &ni);
-		if (ni.blk_addr != start_addr + off) {
-			f2fs_put_page(node_page, 1);
-			continue;
-		}
-
-		/* return 1 only if FG_GC succefully reclaimed one */
-		if (get_valid_blocks(sbi, segno, 1) == 0)
-			return 1;
+	if (initial) {
+		initial = false;
+		goto next_step;
 	}
-	return 0;
 }
 
 /*
@@ -682,7 +675,7 @@ out:
  * If the parent node is not valid or the data block address is different,
  * the victim data block is ignored.
  */
-static int gc_data_segment(struct f2fs_sb_info *sbi, struct f2fs_summary *sum,
+static void gc_data_segment(struct f2fs_sb_info *sbi, struct f2fs_summary *sum,
 		struct gc_inode_list *gc_list, unsigned int segno, int gc_type)
 {
 	struct super_block *sb = sbi->sb;
@@ -706,7 +699,7 @@ next_step:
 
 		/* stop BG_GC if there is not enough free sections. */
 		if (gc_type == BG_GC && has_not_enough_free_secs(sbi, 0))
-			return 0;
+			return;
 
 		if (check_valid_map(sbi, segno, off) == 0)
 			continue;
@@ -771,21 +764,8 @@ next_step:
 		}
 	}
 
-			start_bidx = start_bidx_of_node(nofs, inode)
-								+ ofs_in_node;
-			if (f2fs_encrypted_inode(inode) && S_ISREG(inode->i_mode))
-				move_encrypted_block(inode, start_bidx);
-			else
-				move_data_page(inode, start_bidx, gc_type);
-
-	if (gc_type == FG_GC) {
-		f2fs_submit_merged_bio(sbi, DATA, WRITE);
-
-		/* return 1 only if FG_GC succefully reclaimed one */
-		if (get_valid_blocks(sbi, segno, 1) == 0)
-			return 1;
-	}
-	return 0;
+	if (++phase < 4)
+		goto next_step;
 }
 
 static int __get_victim(struct f2fs_sb_info *sbi, unsigned int *victim,
@@ -801,63 +781,90 @@ static int __get_victim(struct f2fs_sb_info *sbi, unsigned int *victim,
 	return ret;
 }
 
-static int do_garbage_collect(struct f2fs_sb_info *sbi, unsigned int segno,
+static int do_garbage_collect(struct f2fs_sb_info *sbi,
+				unsigned int start_segno,
 				struct gc_inode_list *gc_list, int gc_type)
 {
 	struct page *sum_page;
 	struct f2fs_summary_block *sum;
 	struct blk_plug plug;
-	int nfree = 0;
+	unsigned int segno = start_segno;
+	unsigned int end_segno = start_segno + sbi->segs_per_sec;
+	int seg_freed = 0;
+	unsigned char type = IS_DATASEG(get_seg_entry(sbi, segno)->type) ?
+						SUM_TYPE_DATA : SUM_TYPE_NODE;
 
-	/* read segment summary of victim */
-	sum_page = get_sum_page(sbi, segno);
+	/* readahead multi ssa blocks those have contiguous address */
+	if (sbi->segs_per_sec > 1)
+		ra_meta_pages(sbi, GET_SUM_BLOCK(sbi, segno),
+					sbi->segs_per_sec, META_SSA, true);
+
+	/* reference all summary page */
+	while (segno < end_segno) {
+		sum_page = get_sum_page(sbi, segno++);
+		unlock_page(sum_page);
+	}
 
 	blk_start_plug(&plug);
 
 	for (segno = start_segno; segno < end_segno; segno++) {
-
 		/* find segment summary of victim */
 		sum_page = find_get_page(META_MAPPING(sbi),
 					GET_SUM_BLOCK(sbi, segno));
+		f2fs_bug_on(sbi, !PageUptodate(sum_page));
 		f2fs_put_page(sum_page, 0);
 
-	/*
-	 * this is to avoid deadlock:
-	 * - lock_page(sum_page)         - f2fs_replace_block
-	 *  - check_valid_map()            - mutex_lock(sentry_lock)
-	 *   - mutex_lock(sentry_lock)     - change_curseg()
-	 *                                  - lock_page(sum_page)
-	 */
-	unlock_page(sum_page);
+		sum = page_address(sum_page);
+		f2fs_bug_on(sbi, type != GET_SUM_TYPE((&sum->footer)));
 
-	switch (GET_SUM_TYPE((&sum->footer))) {
-	case SUM_TYPE_NODE:
-		nfree = gc_node_segment(sbi, sum->entries, segno, gc_type);
-		break;
-	case SUM_TYPE_DATA:
-		nfree = gc_data_segment(sbi, sum->entries, gc_list,
-							segno, gc_type);
-		break;
+		/*
+		 * this is to avoid deadlock:
+		 * - lock_page(sum_page)         - f2fs_replace_block
+		 *  - check_valid_map()            - mutex_lock(sentry_lock)
+		 *   - mutex_lock(sentry_lock)     - change_curseg()
+		 *                                  - lock_page(sum_page)
+		 */
+
+		if (type == SUM_TYPE_NODE)
+			gc_node_segment(sbi, sum->entries, segno, gc_type);
+		else
+			gc_data_segment(sbi, sum->entries, gc_list, segno,
+								gc_type);
+
+		stat_inc_seg_count(sbi, type, gc_type);
+		stat_inc_call_count(sbi->stat_info);
+
+		f2fs_put_page(sum_page, 0);
 	}
 
-	if (gc_type == FG_GC)
-		f2fs_submit_merged_bio(sbi,
-				(type == SUM_TYPE_NODE) ? NODE : DATA, WRITE);
+	if (gc_type == FG_GC) {
+		if (type == SUM_TYPE_NODE) {
+			struct writeback_control wbc = {
+				.sync_mode = WB_SYNC_ALL,
+				.nr_to_write = LONG_MAX,
+				.for_reclaim = 0,
+			};
+			sync_node_pages(sbi, 0, &wbc);
+		} else {
+			f2fs_submit_merged_bio(sbi, DATA, WRITE);
+		}
+	}
 
 	blk_finish_plug(&plug);
 
-	stat_inc_seg_count(sbi, GET_SUM_TYPE((&sum->footer)), gc_type);
-	stat_inc_call_count(sbi->stat_info);
-
-	f2fs_put_page(sum_page, 0);
-	return nfree;
+	if (gc_type == FG_GC) {
+		while (start_segno < end_segno)
+			if (get_valid_blocks(sbi, start_segno++, 1) == 0)
+				seg_freed++;
+	}
+	return seg_freed;
 }
 
 int f2fs_gc(struct f2fs_sb_info *sbi, bool sync)
 {
-	unsigned int segno, i;
+	unsigned int segno;
 	int gc_type = sync ? FG_GC : BG_GC;
-	int sec_freed = 0;
+	int sec_freed = 0, seg_freed;
 	int ret = -EINVAL;
 	struct cp_control cpc;
 	struct gc_inode_list gc_list = {
@@ -893,22 +900,9 @@ gc_more:
 		goto stop;
 	ret = 0;
 
-	/* readahead multi ssa blocks those have contiguous address */
-	if (sbi->segs_per_sec > 1)
-		ra_meta_pages(sbi, GET_SUM_BLOCK(sbi, segno), sbi->segs_per_sec,
-							META_SSA, true);
+	seg_freed = do_garbage_collect(sbi, segno, &gc_list, gc_type);
 
-	for (i = 0; i < sbi->segs_per_sec; i++) {
-		/*
-		 * for FG_GC case, halt gcing left segments once failed one
-		 * of segments in selected section to avoid long latency.
-		 */
-		if (!do_garbage_collect(sbi, segno + i, &gc_list, gc_type) &&
-				gc_type == FG_GC)
-			break;
-	}
-
-	if (i == sbi->segs_per_sec && gc_type == FG_GC)
+	if (gc_type == FG_GC && seg_freed == sbi->segs_per_sec)
 		sec_freed++;
 
 	if (gc_type == FG_GC)

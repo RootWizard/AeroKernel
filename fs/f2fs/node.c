@@ -1162,7 +1162,41 @@ void move_node_page(struct page *node_page, int gc_type)
 	dn->node_changed = ret ? true: false;
 }
 
-int sync_node_pages(struct f2fs_sb_info *sbi, struct writeback_control *wbc)
+static void flush_inline_data(struct f2fs_sb_info *sbi, nid_t ino)
+{
+	struct inode *inode;
+	struct page *page;
+
+	/* should flush inline_data before evict_inode */
+	inode = ilookup(sbi->sb, ino);
+	if (!inode)
+		return;
+
+	page = grab_cache_page_nowait(inode->i_mapping, 0);
+	if (!page)
+		goto iput_out;
+
+	if (!PageUptodate(page))
+		goto page_out;
+
+	if (!PageDirty(page))
+		goto page_out;
+
+	if (!clear_page_dirty_for_io(page))
+		goto page_out;
+
+	if (!f2fs_write_inline_data(inode, page))
+		inode_dec_dirty_pages(inode);
+	else
+		set_page_dirty(page);
+page_out:
+	f2fs_put_page(page, 1);
+iput_out:
+	iput(inode);
+}
+
+int sync_node_pages(struct f2fs_sb_info *sbi, nid_t ino,
+					struct writeback_control *wbc)
 {
 	pgoff_t index, end;
 	struct pagevec pvec;
@@ -1222,16 +1256,13 @@ continue_unlock:
 			}
 
 			/* flush inline_data */
-			if (is_inline_node(page)) {
+			if (!ino && is_inline_node(page)) {
 				clear_inline_node(page);
 				unlock_page(page);
 				flush_inline_data(sbi, ino_of_node(page));
-				goto lock_node;
+				continue;
 			}
 
-			f2fs_wait_on_page_writeback(page, NODE, true);
-
-			BUG_ON(PageWriteback(page));
 			if (!clear_page_dirty_for_io(page))
 				goto continue_unlock;
 

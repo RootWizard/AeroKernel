@@ -21,6 +21,7 @@
 #include <linux/mount.h>
 #include <linux/pagevec.h>
 #include <linux/random.h>
+#include <linux/aio.h>
 
 #include "f2fs.h"
 #include "node.h"
@@ -1938,31 +1939,18 @@ static ssize_t f2fs_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
 {
 	struct file *file = iocb->ki_filp;
 	struct inode *inode = file_inode(file);
-	size_t count;
-	struct blk_plug plug;
 	ssize_t ret;
 
 	if (f2fs_encrypted_inode(inode) &&
-				!fscrypt_has_encryption_key(inode) &&
-				fscrypt_get_encryption_info(inode))
+				!f2fs_has_encryption_key(inode) &&
+				f2fs_get_encryption_info(inode))
 		return -EACCES;
 
-	ret = generic_segment_checks(iov, &nr_segs, &count, VERIFY_READ);
-	if (ret)
-		return ret;
-
 	inode_lock(inode);
-	ret = generic_write_checks(file, &pos, &count, S_ISBLK(inode->i_mode));
-	if (!ret) {
-		ret = f2fs_preallocate_blocks(inode, pos, count,
-				iocb->ki_filp->f_flags & O_DIRECT);
-		if (!ret) {
-			blk_start_plug(&plug);
-			ret = __generic_file_aio_write(iocb, iov, nr_segs,
-								&iocb->ki_pos);
-			blk_finish_plug(&plug);
-		}
-	}
+	ret = f2fs_preallocate_blocks(iocb, iov_length(iov, nr_segs));
+	if (!ret)
+		ret = __generic_file_aio_write(iocb, iov, nr_segs,
+							&iocb->ki_pos);
 	inode_unlock(inode);
 
 	if (ret > 0 || ret == -EIOCBQUEUED) {
@@ -2030,7 +2018,7 @@ const struct file_operations f2fs_file_operations = {
 	.read		= do_sync_read,
 	.write		= do_sync_write,
 	.aio_read	= generic_file_aio_read,
-	.aio_write	= generic_file_aio_write,
+	.aio_write	= f2fs_file_aio_write,
 	.open		= f2fs_file_open,
 	.release	= f2fs_release_file,
 	.mmap		= f2fs_file_mmap,

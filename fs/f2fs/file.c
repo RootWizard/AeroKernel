@@ -1939,6 +1939,7 @@ static ssize_t f2fs_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
 {
 	struct file *file = iocb->ki_filp;
 	struct inode *inode = file_inode(file);
+	size_t count;
 	ssize_t ret;
 
 	if (f2fs_encrypted_inode(inode) &&
@@ -1946,11 +1947,19 @@ static ssize_t f2fs_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
 				f2fs_get_encryption_info(inode))
 		return -EACCES;
 
+	ret = generic_segment_checks(iov, &nr_segs, &count, VERIFY_READ);
+	if (ret)
+		return ret;
+
 	inode_lock(inode);
-	ret = f2fs_preallocate_blocks(iocb, iov_length(iov, nr_segs));
-	if (!ret)
-		ret = __generic_file_aio_write(iocb, iov, nr_segs,
-							&iocb->ki_pos);
+	ret = generic_write_checks(file, &pos, &count, S_ISBLK(inode->i_mode));
+	if (!ret) {
+		ret = f2fs_preallocate_blocks(inode, pos, count,
+				iocb->ki_filp->f_flags & O_DIRECT);
+		if (!ret)
+			ret = __generic_file_aio_write(iocb, iov, nr_segs,
+								&iocb->ki_pos);
+	}
 	inode_unlock(inode);
 
 	if (ret > 0 || ret == -EIOCBQUEUED) {

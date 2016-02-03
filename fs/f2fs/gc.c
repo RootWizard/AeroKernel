@@ -277,7 +277,7 @@ static int get_victim_by_default(struct f2fs_sb_info *sbi,
 	struct victim_sel_policy p;
 	unsigned int secno, max_cost;
 	unsigned int last_segment = MAIN_SEGS(sbi);
-	int nsearched = 0;
+	unsigned int nsearched = 0;
 
 	mutex_lock(&dirty_i->seglist_lock);
 
@@ -313,8 +313,15 @@ static int get_victim_by_default(struct f2fs_sb_info *sbi,
 		}
 
 		p.offset = segno + p.ofs_unit;
-		if (p.ofs_unit > 1)
+		if (p.ofs_unit > 1) {
 			p.offset -= segno % p.ofs_unit;
+			nsearched += count_bits(p.dirty_segmap,
+						p.offset - p.ofs_unit,
+						p.ofs_unit);
+		} else {
+			nsearched++;
+		}
+
 
 		secno = GET_SECNO(sbi, segno);
 
@@ -328,11 +335,9 @@ static int get_victim_by_default(struct f2fs_sb_info *sbi,
 		if (p.min_cost > cost) {
 			p.min_segno = segno;
 			p.min_cost = cost;
-		} else if (unlikely(cost == max_cost)) {
-			continue;
 		}
-
-		if (nsearched++ >= p.max_search) {
+next:
+		if (nsearched >= p.max_search) {
 			sbi->last_victim[p.gc_mode] = segno;
 			break;
 		}

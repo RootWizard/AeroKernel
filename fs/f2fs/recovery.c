@@ -484,7 +484,7 @@ retry_prev:
 
 			/* write dummy data page */
 			f2fs_replace_block(sbi, &dn, src, dest,
-							ni.version, false);
+						ni.version, false, false);
 			recovered++;
 		}
 	}

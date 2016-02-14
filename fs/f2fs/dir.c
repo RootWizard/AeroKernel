@@ -933,6 +933,13 @@ out:
 	return err;
 }
 
+static int f2fs_dir_open(struct inode *inode, struct file *filp)
+{
+	if (f2fs_encrypted_inode(inode))
+		return f2fs_get_encryption_info(inode) ? -EACCES : 0;
+	return 0;
+}
+
 const struct file_operations f2fs_dir_operations = {
 	.llseek		= generic_file_llseek,
 	.read		= generic_read_dir,

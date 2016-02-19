@@ -981,6 +981,31 @@ static void write_sum_page(struct f2fs_sb_info *sbi,
 	update_meta_page(sbi, (void *)sum_blk, blk_addr);
 }
 
+static void write_current_sum_page(struct f2fs_sb_info *sbi,
+						int type, block_t blk_addr)
+{
+	struct curseg_info *curseg = CURSEG_I(sbi, type);
+	struct page *page = grab_meta_page(sbi, blk_addr);
+	struct f2fs_summary_block *src = curseg->sum_blk;
+	struct f2fs_summary_block *dst;
+
+	dst = (struct f2fs_summary_block *)page_address(page);
+
+	mutex_lock(&curseg->curseg_mutex);
+
+	down_read(&curseg->journal_rwsem);
+	memcpy(&dst->journal, curseg->journal, SUM_JOURNAL_SIZE);
+	up_read(&curseg->journal_rwsem);
+
+	memcpy(dst->entries, src->entries, SUM_ENTRY_SIZE);
+	memcpy(&dst->footer, &src->footer, SUM_FOOTER_SIZE);
+
+	mutex_unlock(&curseg->curseg_mutex);
+
+	set_page_dirty(page);
+	f2fs_put_page(page, 1);
+}
+
 static int is_next_segment_free(struct f2fs_sb_info *sbi, int type)
 {
 	struct curseg_info *curseg = CURSEG_I(sbi, type);
@@ -1603,12 +1628,11 @@ static int read_compacted_summaries(struct f2fs_sb_info *sbi)
 
 	/* Step 1: restore nat cache */
 	seg_i = CURSEG_I(sbi, CURSEG_HOT_DATA);
-	memcpy(&seg_i->sum_blk->journal.n_nats, kaddr, SUM_JOURNAL_SIZE);
+	memcpy(seg_i->journal, kaddr, SUM_JOURNAL_SIZE);
 
 	/* Step 2: restore sit cache */
 	seg_i = CURSEG_I(sbi, CURSEG_COLD_DATA);
-	memcpy(&seg_i->sum_blk->journal.n_sits, kaddr + SUM_JOURNAL_SIZE,
-						SUM_JOURNAL_SIZE);
+	memcpy(seg_i->journal, kaddr + SUM_JOURNAL_SIZE, SUM_JOURNAL_SIZE);
 	offset = 2 * SUM_JOURNAL_SIZE;
 
 	/* Step 3: restore summary entries */
@@ -1766,13 +1790,12 @@ static void write_compacted_summaries(struct f2fs_sb_info *sbi, block_t blkaddr)
 
 	/* Step 1: write nat cache */
 	seg_i = CURSEG_I(sbi, CURSEG_HOT_DATA);
-	memcpy(kaddr, &seg_i->sum_blk->journal.n_nats, SUM_JOURNAL_SIZE);
+	memcpy(kaddr, seg_i->journal, SUM_JOURNAL_SIZE);
 	written_size += SUM_JOURNAL_SIZE;
 
 	/* Step 2: write sit cache */
 	seg_i = CURSEG_I(sbi, CURSEG_COLD_DATA);
-	memcpy(kaddr + written_size, &seg_i->sum_blk->journal.n_sits,
-						SUM_JOURNAL_SIZE);
+	memcpy(kaddr + written_size, seg_i->journal, SUM_JOURNAL_SIZE);
 	written_size += SUM_JOURNAL_SIZE;
 
 	/* Step 3: write summary entries */
@@ -1956,9 +1979,10 @@ static void add_sits_in_set(struct f2fs_sb_info *sbi)
 static void remove_sits_in_journal(struct f2fs_sb_info *sbi)
 {
 	struct curseg_info *curseg = CURSEG_I(sbi, CURSEG_COLD_DATA);
-	struct f2fs_journal *journal = &curseg->sum_blk->journal;
+	struct f2fs_journal *journal = curseg->journal;
 	int i;
 
+	down_write(&curseg->journal_rwsem);
 	for (i = 0; i < sits_in_cursum(journal); i++) {
 		unsigned int segno;
 		bool dirtied;
@@ -1970,6 +1994,7 @@ static void remove_sits_in_journal(struct f2fs_sb_info *sbi)
 			add_sit_entry(segno, &SM_I(sbi)->sit_entry_set);
 	}
 	update_sits_in_cursum(journal, -i);
+	up_write(&curseg->journal_rwsem);
 }
 
 /*
@@ -1981,7 +2006,7 @@ void flush_sit_entries(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 	struct sit_info *sit_i = SIT_I(sbi);
 	unsigned long *bitmap = sit_i->dirty_sentries_bitmap;
 	struct curseg_info *curseg = CURSEG_I(sbi, CURSEG_COLD_DATA);
-	struct f2fs_journal *journal = &curseg->sum_blk->journal;
+	struct f2fs_journal *journal = curseg->journal;
 	struct sit_entry_set *ses, *tmp;
 	struct list_head *head = &SM_I(sbi)->sit_entry_set;
 	bool to_journal = true;
@@ -2023,7 +2048,9 @@ void flush_sit_entries(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 			!__has_cursum_space(journal, ses->entry_cnt, SIT_JOURNAL))
 			to_journal = false;
 
-		if (!to_journal) {
+		if (to_journal) {
+			down_write(&curseg->journal_rwsem);
+		} else {
 			page = get_next_sit_page(sbi, start_segno);
 			raw_sit = page_address(page);
 		}
@@ -2059,7 +2086,9 @@ void flush_sit_entries(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 			ses->entry_cnt--;
 		}
 
-		if (!to_journal)
+		if (to_journal)
+			up_write(&curseg->journal_rwsem);
+		else
 			f2fs_put_page(page, 1);
 
 		f2fs_bug_on(sbi, ses->entry_cnt);
@@ -2073,6 +2102,7 @@ out:
 		for (; cpc->trim_start <= cpc->trim_end; cpc->trim_start++)
 			add_discard_addrs(sbi, cpc);
 	}
+	mutex_unlock(&sit_i->sentry_lock);
 
 	set_prefree_as_free_segments(sbi);
 }
@@ -2226,7 +2256,7 @@ static void build_sit_entries(struct f2fs_sb_info *sbi)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
 	struct curseg_info *curseg = CURSEG_I(sbi, CURSEG_COLD_DATA);
-	struct f2fs_journal *journal = &curseg->sum_blk->journal;
+	struct f2fs_journal *journal = curseg->journal;
 	int sit_blk_cnt = SIT_BLK_CNT(sbi);
 	unsigned int i, start, end;
 	unsigned int readed, start_blk = 0;
@@ -2244,16 +2274,16 @@ static void build_sit_entries(struct f2fs_sb_info *sbi)
 			struct f2fs_sit_entry sit;
 			struct page *page;
 
-			mutex_lock(&curseg->curseg_mutex);
+			down_read(&curseg->journal_rwsem);
 			for (i = 0; i < sits_in_cursum(journal); i++) {
 				if (le32_to_cpu(segno_in_journal(journal, i))
 								== start) {
 					sit = sit_in_journal(journal, i);
-					mutex_unlock(&curseg->curseg_mutex);
+					up_read(&curseg->journal_rwsem);
 					goto got_it;
 				}
 			}
-			mutex_unlock(&curseg->curseg_mutex);
+			up_read(&curseg->journal_rwsem);
 
 			page = get_current_sit_page(sbi, start);
 			sit_blk = (struct f2fs_sit_block *)page_address(page);

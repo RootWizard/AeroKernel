@@ -115,18 +115,17 @@ config CPU_FREQ_DEFAULT_GOV_INTERACTIVE
 	  loading your cpufreq low-level hardware driver, using the
 	  'interactive' governor for latency-sensitive workloads.
 
-config CPU_FREQ_DEFAULT_GOV_ZZMOOVE
-	  bool "zzmoove"
-	  select CPU_FREQ_GOV_ZZMOOVE
-	  select CPU_FREQ_GOV_PERFORMANCE
-	  help
-	  Use the CPUFreq governor 'zzmoove' as default, using predefined
-	  frequency lookup tables and optimized scaling triggers instead 
-	  % frequency steps to get smooth up/downscaling dependant on CPU load.
+config CPU_FREQ_DEFAULT_GOV_IRONACTIVE
+ 	bool "ironactive"
+ 	select CPU_FREQ_GOV_IRONACTIVE
+ 	help
+ 	  Use the CPUFreq governor 'ironactive' as default. This cpugovernor
+ 	  is based on the 'interactive' governor with many changes made by
+ 	  CAF.
 
-config CPU_FREQ_DEFAULT_GOV_BARRY_ALLEN
-	bool "barry_allen"
-	select CPU_FREQ_GOV_BARRY_ALLEN
+config CPU_FREQ_DEFAULT_GOV_KRAKEN
+	bool "kraken"
+	select CPU_FREQ_GOV_KRAKEN
 	help
 	  Use the CPUFreq governor 'barry_allen' as default. This allows
 	  you to get a full dynamic cpu frequency capable system by simply
@@ -335,8 +334,25 @@ config CPU_FREQ_GOV_BARRY_ALLEN
 
 	  If in doubt, say N.
 
-config CPU_FREQ_GOV_BIOSHOCK
-	tristate "'bioshock' cpufreq bioshock"
+config CPU_FREQ_GOV_IRONACTIVE
+ 	tristate "'ironactive' cpufreq policy governor"
+ 	help
+ 	  'ironactive' - This driver adds a dynamic cpufreq policy governor
+ 	  designed for latency-sensitive workloads.
+ 
+ 	  This governor attempts to reduce the latency of clock
+ 	  increases so that the system is more responsive to
+ 	  ironactive workloads. Based on 'interactive' governor
+ 	  with many changes compared to our stock 'interactive'
+ 	  governor we have from samsung. Mainly CAF changes.
+ 
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called cpufreq_ironactive.
+ 
+ 	  If in doubt, say N.
+
+config CPU_FREQ_GOV_LIONFISH
+	tristate "'lionfish' governor"
 	depends on CPU_FREQ
 	help
 	  'bioshock' - More aggressive version of conservative

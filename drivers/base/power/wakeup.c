@@ -17,19 +17,6 @@
 #include <linux/types.h>
 #include <trace/events/power.h>
 
-static bool enable_si_ws = true;
-module_param(enable_si_ws, bool, 0644);
-static bool enable_msm_hsic_ws = true;
-module_param(enable_msm_hsic_ws, bool, 0644);
-static bool enable_wlan_rx_wake_ws = true;
-module_param(enable_wlan_rx_wake_ws, bool, 0644);
-static bool enable_wlan_ctrl_wake_ws = true;
-module_param(enable_wlan_ctrl_wake_ws, bool, 0644);
-static bool enable_wlan_wake_ws = true;
-module_param(enable_wlan_wake_ws, bool, 0644);
-static bool enable_bluedroid_timer_ws = true;
-module_param(enable_bluedroid_timer_ws, bool, 0644);
-
 #include "power.h"
 
 /*
@@ -395,26 +382,6 @@ EXPORT_SYMBOL_GPL(device_set_wakeup_enable);
 static void wakeup_source_activate(struct wakeup_source *ws)
 {
 	unsigned int cec;
-
-	if (((!enable_si_ws && !strcmp(ws->name, "sensor_ind")) ||
-		(!enable_wlan_rx_wake_ws &&
-			!strcmp(ws->name, "wlan_rx_wake")) ||
-		(!enable_wlan_ctrl_wake_ws &&
-			!strcmp(ws->name, "wlan_ctrl_wake")) ||
-		(!enable_wlan_wake_ws &&
-			!strcmp(ws->name, "wlan_wake")) ||
-		(!enable_bluedroid_timer_ws &&
-			!strcmp(ws->name, "bluedroid_timer")))) {
-		/*
-		 * let's try and deactivate this wakeup source since the user
-		 * clearly doesn't want it. The user is responsible for any
-		 * adverse effects and has been warned about it
-		 */
-		if (ws->active)
-			wakeup_source_deactivate(ws);
-
-		return;
-	}
 
 	/*
 	 * active wakeup source should bring the system

@@ -124,7 +124,7 @@ static void __ref hotplug_func(struct work_struct *work)
 	}
 
 	for_each_online_cpu(cpu)
-		loadavg += cpufreq_quick_get_util(cpu);
+		loadavg += cpufreq_quick_get(cpu);
 
 	loadavg /= num_online_cpus();
 	

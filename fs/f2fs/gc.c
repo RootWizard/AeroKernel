@@ -494,8 +494,109 @@ static int check_dnode(struct f2fs_sb_info *sbi, struct f2fs_summary *sum,
 	f2fs_put_page(node_page, 1);
 
 	if (source_blkaddr != blkaddr)
-		return 0;
-	return 1;
+		return false;
+	return true;
+}
+
+static void move_encrypted_block(struct inode *inode, block_t bidx)
+{
+	struct f2fs_io_info fio = {
+		.sbi = F2FS_I_SB(inode),
+		.type = DATA,
+		.rw = READ_SYNC,
+		.encrypted_page = NULL,
+	};
+	struct dnode_of_data dn;
+	struct f2fs_summary sum;
+	struct node_info ni;
+	struct page *page;
+	block_t newaddr;
+	int err;
+
+	/* do not read out */
+	page = f2fs_grab_cache_page(inode->i_mapping, bidx, false);
+	if (!page)
+		return;
+
+	set_new_dnode(&dn, inode, NULL, NULL, 0);
+	err = get_dnode_of_data(&dn, bidx, LOOKUP_NODE);
+	if (err)
+		goto out;
+
+	if (unlikely(dn.data_blkaddr == NULL_ADDR)) {
+		ClearPageUptodate(page);
+		goto put_out;
+	}
+
+	/*
+	 * don't cache encrypted data into meta inode until previous dirty
+	 * data were writebacked to avoid racing between GC and flush.
+	 */
+	f2fs_wait_on_page_writeback(page, DATA, true);
+
+	get_node_info(fio.sbi, dn.nid, &ni);
+	set_summary(&sum, dn.nid, dn.ofs_in_node, ni.version);
+
+	/* read page */
+	fio.page = page;
+	fio.new_blkaddr = fio.old_blkaddr = dn.data_blkaddr;
+
+	allocate_data_block(fio.sbi, NULL, fio.old_blkaddr, &newaddr,
+							&sum, CURSEG_COLD_DATA);
+
+	fio.encrypted_page = f2fs_grab_cache_page(META_MAPPING(fio.sbi),
+							newaddr, true);
+	if (!fio.encrypted_page) {
+		err = -ENOMEM;
+		goto recover_block;
+	}
+
+	err = f2fs_submit_page_bio(&fio);
+	if (err)
+		goto put_page_out;
+
+	/* write page */
+	lock_page(fio.encrypted_page);
+
+	if (unlikely(!PageUptodate(fio.encrypted_page))) {
+		err = -EIO;
+		goto put_page_out;
+	}
+	if (unlikely(fio.encrypted_page->mapping != META_MAPPING(fio.sbi))) {
+		err = -EIO;
+		goto put_page_out;
+	}
+
+	set_page_dirty(fio.encrypted_page);
+	f2fs_wait_on_page_writeback(fio.encrypted_page, DATA, true);
+	if (clear_page_dirty_for_io(fio.encrypted_page))
+		dec_page_count(fio.sbi, F2FS_DIRTY_META);
+
+	set_page_writeback(fio.encrypted_page);
+
+	/* allocate block address */
+	f2fs_wait_on_page_writeback(dn.node_page, NODE, true);
+
+	fio.rw = WRITE_SYNC;
+	fio.new_blkaddr = newaddr;
+	f2fs_submit_page_mbio(&fio);
+
+	dn.data_blkaddr = fio.new_blkaddr;
+	set_data_blkaddr(&dn);
+	f2fs_update_extent_cache(&dn);
+	set_inode_flag(F2FS_I(inode), FI_APPEND_WRITE);
+	if (page->index == 0)
+		set_inode_flag(F2FS_I(inode), FI_FIRST_BLOCK_WRITTEN);
+put_page_out:
+	f2fs_put_page(fio.encrypted_page, 1);
+recover_block:
+	if (err)
+		__f2fs_replace_block(fio.sbi, &sum, newaddr, fio.old_blkaddr,
+								true, true);
+put_out:
+	f2fs_put_dnode(&dn);
+out:
+	f2fs_put_page(page, 1);
 }
 
 static void move_data_page(struct inode *inode, struct page *page, int gc_type)

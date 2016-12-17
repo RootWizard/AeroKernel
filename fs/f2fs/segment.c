@@ -897,9 +897,8 @@ void write_data_page(struct inode *inode, struct page *page,
 	BUG_ON(old_blkaddr == NULL_ADDR);
 	get_node_info(sbi, dn->nid, &ni);
 	set_summary(&sum, dn->nid, dn->ofs_in_node, ni.version);
-
-	do_write_page(sbi, page, old_blkaddr,
-			new_blkaddr, &sum, DATA);
+	do_write_page(&sum, fio);
+	dn->data_blkaddr = fio->new_blkaddr;
 }
 
 void rewrite_data_page(struct f2fs_sb_info *sbi, struct page *page,
@@ -967,8 +966,10 @@ void rewrite_node_page(struct f2fs_sb_info *sbi,
 
 	curseg = CURSEG_I(sbi, type);
 
-	mutex_lock(&curseg->curseg_mutex);
-	mutex_lock(&sit_i->sentry_lock);
+	dn->data_blkaddr = new_addr;
+	set_data_blkaddr(dn);
+	f2fs_update_extent_cache(dn);
+}
 
 	segno = GET_SEGNO(sbi, new_blkaddr);
 	old_cursegno = curseg->segno;

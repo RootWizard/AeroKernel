@@ -267,11 +267,71 @@ void update_extent_cache(block_t blk_addr, struct dnode_of_data *dn)
 		goto end_update;
 	}
 
-	/* Back merge */
-	if (fofs == end_fofs + 1 && blk_addr == end_blkaddr + 1) {
-		fi->ext.len++;
-		goto end_update;
-	}
+	io->last_block_in_bio = fio->new_blkaddr;
+	f2fs_trace_ios(fio, 0);
+
+	up_write(&io->io_rwsem);
+	trace_f2fs_submit_page_mbio(fio->page, fio);
+}
+
+/*
+ * Low-level block read/write IO operations.
+ */
+void set_data_blkaddr(struct dnode_of_data *dn)
+{
+	struct bio *bio;
+
+	f2fs_wait_on_page_writeback(node_page, NODE, true);
+
+	rn = F2FS_NODE(node_page);
+
+	/* Get physical address of data block */
+	addr_array = blkaddr_in_node(rn);
+	addr_array[ofs_in_node] = cpu_to_le32(dn->data_blkaddr);
+	if (set_page_dirty(node_page))
+		dn->node_changed = true;
+}
+
+static inline void __submit_bio(struct f2fs_sb_info *sbi, int rw,
+			struct bio *bio, enum page_type type)
+{
+	struct f2fs_sb_info *sbi = F2FS_I_SB(dn->inode);
+
+	if (unlikely(is_inode_flag_set(F2FS_I(dn->inode), FI_NO_ALLOC)))
+		return -EPERM;
+	if (unlikely(!inc_valid_block_count(sbi, dn->inode, 1)))
+		return -ENOSPC;
+
+	if (!io->bio)
+		return;
+
+	dn->data_blkaddr = NEW_ADDR;
+	set_data_blkaddr(dn);
+	mark_inode_dirty(dn->inode);
+	sync_inode_page(dn);
+	return 0;
+}
+
+int f2fs_reserve_block(struct dnode_of_data *dn, pgoff_t index)
+{
+	bool need_put = dn->inode_page ? false : true;
+	int err;
+
+	err = get_dnode_of_data(dn, index, ALLOC_NODE);
+	if (err)
+		return err;
+
+	if (dn->data_blkaddr == NULL_ADDR)
+		err = reserve_new_block(dn);
+	if (err || need_put)
+		f2fs_put_dnode(dn);
+	return err;
+}
+
+int f2fs_get_block(struct dnode_of_data *dn, pgoff_t index)
+{
+	struct extent_info ei;
+	struct inode *inode = dn->inode;
 
 	/* Split the existing extent */
 	if (fi->ext.len > 1 &&
@@ -664,9 +724,13 @@ int do_write_data_page(struct page *page)
 		rewrite_data_page(F2FS_SB(inode->i_sb), page,
 						old_blk_addr);
 	} else {
-		write_data_page(inode, page, &dn,
-				old_blk_addr, &new_blk_addr);
-		update_extent_cache(new_blk_addr, &dn);
+		write_data_page(&dn, fio);
+		set_data_blkaddr(&dn);
+		f2fs_update_extent_cache(&dn);
+		trace_f2fs_do_write_data_page(page, OPU);
+		set_inode_flag(F2FS_I(inode), FI_APPEND_WRITE);
+		if (page->index == 0)
+			set_inode_flag(F2FS_I(inode), FI_FIRST_BLOCK_WRITTEN);
 	}
 out_writepage:
 	f2fs_put_dnode(&dn);

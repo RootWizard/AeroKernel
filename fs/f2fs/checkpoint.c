@@ -731,9 +731,9 @@ void write_checkpoint(struct f2fs_sb_info *sbi, bool is_umount)
 
 	trace_f2fs_write_checkpoint(sbi->sb, is_umount, "finish block_ops");
 
-	f2fs_submit_bio(sbi, DATA, true);
-	f2fs_submit_bio(sbi, NODE, true);
-	f2fs_submit_bio(sbi, META, true);
+	f2fs_submit_merged_bio(sbi, DATA, WRITE);
+	f2fs_submit_merged_bio(sbi, NODE, WRITE);
+	f2fs_submit_merged_bio(sbi, META, WRITE);
 
 	/*
 	 * update checkpoint pack index

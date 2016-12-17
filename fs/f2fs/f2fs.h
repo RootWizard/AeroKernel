@@ -1189,6 +1189,13 @@ void destroy_checkpoint_caches(void);
 /*
  * data.c
  */
+void f2fs_submit_merged_bio(struct f2fs_sb_info *, enum page_type, int);
+void f2fs_submit_merged_bio_cond(struct f2fs_sb_info *, struct inode *,
+				struct page *, nid_t, enum page_type, int);
+int f2fs_submit_page_bio(struct f2fs_io_info *);
+void f2fs_submit_page_mbio(struct f2fs_io_info *);
+void set_data_blkaddr(struct dnode_of_data *);
+void f2fs_update_data_blkaddr(struct dnode_of_data *, block_t);
 int reserve_new_block(struct dnode_of_data *);
 void update_extent_cache(block_t, struct dnode_of_data *);
 struct page *find_data_page(struct inode *, pgoff_t, bool);

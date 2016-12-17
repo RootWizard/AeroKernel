@@ -221,6 +221,8 @@ static struct dentry *f2fs_lookup(struct inode *dir, struct dentry *dentry,
 	struct inode *inode = NULL;
 	struct f2fs_dir_entry *de;
 	struct page *page;
+	nid_t ino;
+	int err = 0;
 
 	if (dentry->d_name.len > F2FS_NAME_LEN)
 		return ERR_PTR(-ENAMETOOLONG);
@@ -231,11 +233,11 @@ static struct dentry *f2fs_lookup(struct inode *dir, struct dentry *dentry,
 		kunmap(page);
 		f2fs_put_page(page, 0);
 
-		inode = f2fs_iget(dir->i_sb, ino);
-		if (IS_ERR(inode))
-			return ERR_CAST(inode);
+	if (f2fs_has_inline_dots(inode)) {
+		err = __recover_dot_dentries(inode, dir->i_ino);
+		if (err)
+			goto err_out;
 	}
-
 	return d_splice_alias(inode, dentry);
 }
 

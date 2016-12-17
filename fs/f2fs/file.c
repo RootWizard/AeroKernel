@@ -163,6 +163,25 @@ out:
 
 static int f2fs_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
+<<<<<<< HEAD
+=======
+	struct inode *inode = file_inode(file);
+	int err;
+
+	if (f2fs_encrypted_inode(inode)) {
+		err = f2fs_get_encryption_info(inode);
+		if (err)
+			return 0;
+		if (!f2fs_encrypted_inode(inode))
+			return -ENOKEY;
+	}
+
+	/* we don't need to use inline_data strictly */
+	err = f2fs_convert_inline_inode(inode);
+	if (err)
+		return err;
+
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	file_accessed(file);
 	vma->vm_ops = &f2fs_file_vm_ops;
 	return 0;
@@ -170,8 +189,26 @@ static int f2fs_file_mmap(struct file *file, struct vm_area_struct *vma)
 
 static int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 {
+<<<<<<< HEAD
 	int nr_free = 0, ofs = dn->ofs_in_node;
 	struct f2fs_sb_info *sbi = F2FS_SB(dn->inode->i_sb);
+=======
+	int ret = generic_file_open(inode, filp);
+
+	if (!ret && f2fs_encrypted_inode(inode)) {
+		ret = f2fs_get_encryption_info(inode);
+		if (ret)
+			return -EACCES;
+		if (!f2fs_encrypted_inode(inode))
+			return -ENOKEY;
+	}
+	return ret;
+}
+
+int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
+{
+	struct f2fs_sb_info *sbi = F2FS_I_SB(dn->inode);
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	struct f2fs_node *raw_node;
 	__le32 *addr;
 
@@ -223,7 +260,12 @@ static void truncate_partial_data_page(struct inode *inode, u64 from)
 	}
 	wait_on_page_writeback(page);
 	zero_user(page, offset, PAGE_CACHE_SIZE - offset);
+<<<<<<< HEAD
 	set_page_dirty(page);
+=======
+	if (!cache_only || !f2fs_encrypted_inode(inode) || !S_ISREG(inode->i_mode))
+		set_page_dirty(page);
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	f2fs_put_page(page, 1);
 }
 
@@ -341,11 +383,40 @@ int f2fs_setattr(struct dentry *dentry, struct iattr *attr)
 	if (err)
 		return err;
 
+<<<<<<< HEAD
 	if ((attr->ia_valid & ATTR_SIZE) &&
 			attr->ia_size != i_size_read(inode)) {
 		truncate_setsize(inode, attr->ia_size);
 		f2fs_truncate(inode);
 		f2fs_balance_fs(F2FS_SB(inode->i_sb));
+=======
+	if (attr->ia_valid & ATTR_SIZE) {
+		if (f2fs_encrypted_inode(inode) &&
+				f2fs_get_encryption_info(inode))
+			return -EACCES;
+
+		if (attr->ia_size <= i_size_read(inode)) {
+			truncate_setsize(inode, attr->ia_size);
+			err = f2fs_truncate(inode, true);
+			if (err)
+				return err;
+			f2fs_balance_fs(F2FS_I_SB(inode), true);
+		} else {
+			/*
+			 * do not trim all blocks after i_size if target size is
+			 * larger than i_size.
+			 */
+			truncate_setsize(inode, attr->ia_size);
+
+			/* should convert inline inode here */
+			if (!f2fs_may_inline_data(inode)) {
+				err = f2fs_convert_inline_inode(inode);
+				if (err)
+					return err;
+			}
+			inode->i_mtime = inode->i_ctime = CURRENT_TIME;
+		}
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	}
 
 	__setattr_copy(inode, attr);
@@ -591,8 +662,379 @@ long f2fs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			goto out;
 		}
 
+<<<<<<< HEAD
 		if (get_user(flags, (int __user *) arg)) {
 			ret = -EFAULT;
+=======
+		if (blk_end && blk_end != map.m_pblk) {
+			fragmented = true;
+			break;
+		}
+	}
+
+	flags = flags & FS_FL_USER_MODIFIABLE;
+	flags |= oldflags & ~FS_FL_USER_MODIFIABLE;
+	fi->i_flags = flags;
+	mutex_unlock(&inode->i_mutex);
+
+	f2fs_set_inode_flags(inode);
+	inode->i_ctime = CURRENT_TIME;
+	mark_inode_dirty(inode);
+out:
+	mnt_drop_write_file(filp);
+	return ret;
+}
+
+static int f2fs_ioc_getversion(struct file *filp, unsigned long arg)
+{
+	struct inode *inode = file_inode(filp);
+
+	return put_user(inode->i_generation, (int __user *)arg);
+}
+
+static int f2fs_ioc_start_atomic_write(struct file *filp)
+{
+	struct inode *inode = file_inode(filp);
+	int ret;
+
+	if (!inode_owner_or_capable(inode))
+		return -EACCES;
+
+	if (f2fs_is_atomic_file(inode))
+		return 0;
+
+	ret = f2fs_convert_inline_inode(inode);
+	if (ret)
+		return ret;
+
+	set_inode_flag(F2FS_I(inode), FI_ATOMIC_FILE);
+	f2fs_update_time(F2FS_I_SB(inode), REQ_TIME);
+
+	return 0;
+}
+
+static int f2fs_ioc_commit_atomic_write(struct file *filp)
+{
+	struct inode *inode = file_inode(filp);
+	int ret;
+
+	if (!inode_owner_or_capable(inode))
+		return -EACCES;
+
+	if (f2fs_is_volatile_file(inode))
+		return 0;
+
+	ret = mnt_want_write_file(filp);
+	if (ret)
+		return ret;
+
+	if (f2fs_is_atomic_file(inode)) {
+		clear_inode_flag(F2FS_I(inode), FI_ATOMIC_FILE);
+		ret = commit_inmem_pages(inode);
+		if (ret) {
+			set_inode_flag(F2FS_I(inode), FI_ATOMIC_FILE);
+			goto err_out;
+		}
+	}
+
+	ret = f2fs_sync_file(filp, 0, LLONG_MAX, 0);
+err_out:
+	mnt_drop_write_file(filp);
+	return ret;
+}
+
+static int f2fs_ioc_start_volatile_write(struct file *filp)
+{
+	struct inode *inode = file_inode(filp);
+	int ret;
+
+	if (!inode_owner_or_capable(inode))
+		return -EACCES;
+
+	if (f2fs_is_volatile_file(inode))
+		return 0;
+
+	ret = f2fs_convert_inline_inode(inode);
+	if (ret)
+		return ret;
+
+	set_inode_flag(F2FS_I(inode), FI_VOLATILE_FILE);
+	f2fs_update_time(F2FS_I_SB(inode), REQ_TIME);
+	return 0;
+}
+
+static int f2fs_ioc_release_volatile_write(struct file *filp)
+{
+	struct inode *inode = file_inode(filp);
+
+	if (!inode_owner_or_capable(inode))
+		return -EACCES;
+
+	if (!f2fs_is_volatile_file(inode))
+		return 0;
+
+	if (!f2fs_is_first_block_written(inode))
+		return truncate_partial_data_page(inode, 0, true);
+
+	return punch_hole(inode, 0, F2FS_BLKSIZE);
+}
+
+static int f2fs_ioc_abort_volatile_write(struct file *filp)
+{
+	struct inode *inode = file_inode(filp);
+	int ret;
+
+	if (!inode_owner_or_capable(inode))
+		return -EACCES;
+
+	ret = mnt_want_write_file(filp);
+	if (ret)
+		return ret;
+
+	if (f2fs_is_atomic_file(inode)) {
+		clear_inode_flag(F2FS_I(inode), FI_ATOMIC_FILE);
+		drop_inmem_pages(inode);
+	}
+	if (f2fs_is_volatile_file(inode)) {
+		clear_inode_flag(F2FS_I(inode), FI_VOLATILE_FILE);
+		ret = f2fs_sync_file(filp, 0, LLONG_MAX, 0);
+	}
+
+	mnt_drop_write_file(filp);
+	f2fs_update_time(F2FS_I_SB(inode), REQ_TIME);
+	return ret;
+}
+
+static int f2fs_ioc_shutdown(struct file *filp, unsigned long arg)
+{
+	struct inode *inode = file_inode(filp);
+	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
+	struct super_block *sb = sbi->sb;
+	__u32 in;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	if (get_user(in, (__u32 __user *)arg))
+		return -EFAULT;
+
+	switch (in) {
+	case FS_GOING_DOWN_FULLSYNC:
+		sb = freeze_bdev(sb->s_bdev);
+		if (sb && !IS_ERR(sb)) {
+			f2fs_stop_checkpoint(sbi);
+			thaw_bdev(sb->s_bdev, sb);
+		}
+		break;
+	case FS_GOING_DOWN_METASYNC:
+		/* do checkpoint only */
+		f2fs_sync_fs(sb, 1);
+		f2fs_stop_checkpoint(sbi);
+		break;
+	case FS_GOING_DOWN_NOSYNC:
+		f2fs_stop_checkpoint(sbi);
+		break;
+	case FS_GOING_DOWN_METAFLUSH:
+		sync_meta_pages(sbi, META, LONG_MAX);
+		f2fs_stop_checkpoint(sbi);
+		break;
+	default:
+		return -EINVAL;
+	}
+	f2fs_update_time(sbi, REQ_TIME);
+	return 0;
+}
+
+static int f2fs_ioc_fitrim(struct file *filp, unsigned long arg)
+{
+	struct inode *inode = file_inode(filp);
+	struct super_block *sb = inode->i_sb;
+	struct request_queue *q = bdev_get_queue(sb->s_bdev);
+	struct fstrim_range range;
+	int ret;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	if (!blk_queue_discard(q))
+		return -EOPNOTSUPP;
+
+	if (copy_from_user(&range, (struct fstrim_range __user *)arg,
+				sizeof(range)))
+		return -EFAULT;
+
+	range.minlen = max((unsigned int)range.minlen,
+				q->limits.discard_granularity);
+	ret = f2fs_trim_fs(F2FS_SB(sb), &range);
+	if (ret < 0)
+		return ret;
+
+	if (copy_to_user((struct fstrim_range __user *)arg, &range,
+				sizeof(range)))
+		return -EFAULT;
+	f2fs_update_time(F2FS_I_SB(inode), REQ_TIME);
+	return 0;
+}
+
+static bool uuid_is_nonzero(__u8 u[16])
+{
+	int i;
+
+	for (i = 0; i < 16; i++)
+		if (u[i])
+			return true;
+	return false;
+}
+
+static int f2fs_ioc_set_encryption_policy(struct file *filp, unsigned long arg)
+{
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+	struct f2fs_encryption_policy policy;
+	struct inode *inode = file_inode(filp);
+
+	if (copy_from_user(&policy, (struct f2fs_encryption_policy __user *)arg,
+				sizeof(policy)))
+		return -EFAULT;
+
+	f2fs_update_time(F2FS_I_SB(inode), REQ_TIME);
+	return f2fs_process_policy(&policy, inode);
+#else
+	return -EOPNOTSUPP;
+#endif
+}
+
+static int f2fs_ioc_get_encryption_policy(struct file *filp, unsigned long arg)
+{
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+	struct f2fs_encryption_policy policy;
+	struct inode *inode = file_inode(filp);
+	int err;
+
+	err = f2fs_get_policy(inode, &policy);
+	if (err)
+		return err;
+
+	if (copy_to_user((struct f2fs_encryption_policy __user *)arg, &policy,
+							sizeof(policy)))
+		return -EFAULT;
+	return 0;
+#else
+	return -EOPNOTSUPP;
+#endif
+}
+
+static int f2fs_ioc_get_encryption_pwsalt(struct file *filp, unsigned long arg)
+{
+	struct inode *inode = file_inode(filp);
+	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
+	int err;
+
+	if (!f2fs_sb_has_crypto(inode->i_sb))
+		return -EOPNOTSUPP;
+
+	if (uuid_is_nonzero(sbi->raw_super->encrypt_pw_salt))
+		goto got_it;
+
+	err = mnt_want_write_file(filp);
+	if (err)
+		return err;
+
+	/* update superblock with uuid */
+	generate_random_uuid(sbi->raw_super->encrypt_pw_salt);
+
+	err = f2fs_commit_super(sbi, false);
+	if (err) {
+		/* undo new data */
+		memset(sbi->raw_super->encrypt_pw_salt, 0, 16);
+		mnt_drop_write_file(filp);
+		return err;
+	}
+	mnt_drop_write_file(filp);
+got_it:
+	if (copy_to_user((__u8 __user *)arg, sbi->raw_super->encrypt_pw_salt,
+									16))
+		return -EFAULT;
+	return 0;
+}
+
+static int f2fs_ioc_gc(struct file *filp, unsigned long arg)
+{
+	struct inode *inode = file_inode(filp);
+	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
+	__u32 sync;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	if (get_user(sync, (__u32 __user *)arg))
+		return -EFAULT;
+
+	if (f2fs_readonly(sbi->sb))
+		return -EROFS;
+
+	if (!sync) {
+		if (!mutex_trylock(&sbi->gc_mutex))
+			return -EBUSY;
+	} else {
+		mutex_lock(&sbi->gc_mutex);
+	}
+
+	return f2fs_gc(sbi, sync);
+}
+
+static int f2fs_ioc_write_checkpoint(struct file *filp, unsigned long arg)
+{
+	struct inode *inode = file_inode(filp);
+	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	if (f2fs_readonly(sbi->sb))
+		return -EROFS;
+
+	return f2fs_sync_fs(sbi->sb, 1);
+}
+
+static int f2fs_defragment_range(struct f2fs_sb_info *sbi,
+					struct file *filp,
+					struct f2fs_defragment *range)
+{
+	struct inode *inode = file_inode(filp);
+	struct f2fs_map_blocks map = { .m_next_pgofs = NULL };
+	struct extent_info ei;
+	pgoff_t pg_start, pg_end;
+	unsigned int blk_per_seg = sbi->blocks_per_seg;
+	unsigned int total = 0, sec_num;
+	unsigned int pages_per_sec = sbi->segs_per_sec * blk_per_seg;
+	block_t blk_end = 0;
+	bool fragmented = false;
+	int err;
+
+	/* if in-place-update policy is enabled, don't waste time here */
+	if (need_inplace_update(inode))
+		return -EINVAL;
+
+	pg_start = range->start >> PAGE_CACHE_SHIFT;
+	pg_end = (range->start + range->len) >> PAGE_CACHE_SHIFT;
+
+	f2fs_balance_fs(sbi, true);
+
+	mutex_lock(&inode->i_mutex);
+
+	/* writeback all dirty pages in the range */
+	err = filemap_write_and_wait_range(inode->i_mapping, range->start,
+						range->start + range->len - 1);
+	if (err)
+		goto out;
+
+	/*
+	 * lookup mapping info in extent cache, skip defragmenting if physical
+	 * block addresses are continuous.
+	 */
+	if (f2fs_lookup_extent_cache(inode, pg_start, &ei)) {
+		if (ei.fofs + ei.len >= pg_end)
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 			goto out;
 		}
 
@@ -627,6 +1069,47 @@ out:
 	}
 }
 
+<<<<<<< HEAD
+=======
+static ssize_t f2fs_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
+		unsigned long nr_segs, loff_t pos)
+{
+	struct file *file = iocb->ki_filp;
+	struct inode *inode = file_inode(file);
+	size_t count;
+	ssize_t ret;
+
+	if (f2fs_encrypted_inode(inode) &&
+				!f2fs_has_encryption_key(inode) &&
+				f2fs_get_encryption_info(inode))
+		return -EACCES;
+
+	ret = generic_segment_checks(iov, &nr_segs, &count, VERIFY_READ);
+	if (ret)
+		return ret;
+
+	inode_lock(inode);
+	ret = generic_write_checks(file, &pos, &count, S_ISBLK(inode->i_mode));
+	if (!ret) {
+		ret = f2fs_preallocate_blocks(inode, pos, count,
+				iocb->ki_filp->f_flags & O_DIRECT);
+		if (!ret)
+			ret = __generic_file_aio_write(iocb, iov, nr_segs,
+								&iocb->ki_pos);
+	}
+	inode_unlock(inode);
+
+	if (ret > 0 || ret == -EIOCBQUEUED) {
+		ssize_t err;
+
+		err = generic_write_sync(file, iocb->ki_pos - ret, ret);
+		if (err < 0 && ret > 0)
+			ret = err;
+	}
+	return ret;
+}
+
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 #ifdef CONFIG_COMPAT
 long f2fs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {

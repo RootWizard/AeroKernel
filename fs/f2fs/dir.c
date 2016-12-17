@@ -75,8 +75,16 @@ static unsigned long dir_block_index(unsigned int level, unsigned int idx)
 	return bidx;
 }
 
+<<<<<<< HEAD
 static bool early_match_name(const char *name, size_t namelen,
 			f2fs_hash_t namehash, struct f2fs_dir_entry *de)
+=======
+static struct f2fs_dir_entry *find_in_block(struct page *dentry_page,
+				struct f2fs_filename *fname,
+				f2fs_hash_t namehash,
+				int *max_slots,
+				struct page **res_page)
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 {
 	if (le16_to_cpu(de->name_len) != namelen)
 		return false;
@@ -87,6 +95,7 @@ static bool early_match_name(const char *name, size_t namelen,
 	return true;
 }
 
+<<<<<<< HEAD
 static struct f2fs_dir_entry *find_in_block(struct page *dentry_page,
 			const char *name, size_t namelen, int *max_slots,
 			f2fs_hash_t namehash, struct page **res_page)
@@ -95,6 +104,26 @@ static struct f2fs_dir_entry *find_in_block(struct page *dentry_page,
 	unsigned long bit_pos, end_pos, next_pos;
 	struct f2fs_dentry_block *dentry_blk = kmap(dentry_page);
 	int slots;
+=======
+struct f2fs_dir_entry *find_target_dentry(struct f2fs_filename *fname,
+			f2fs_hash_t namehash, int *max_slots,
+			struct f2fs_dentry_ptr *d)
+{
+	struct f2fs_dir_entry *de;
+	unsigned long bit_pos = 0;
+	int max_len = 0;
+	struct f2fs_str de_name = FSTR_INIT(NULL, 0);
+	struct f2fs_str *name = &fname->disk_name;
+
+	if (max_slots)
+		*max_slots = 0;
+	while (bit_pos < d->max) {
+		if (!test_bit_le(bit_pos, d->bitmap)) {
+			bit_pos++;
+			max_len++;
+			continue;
+		}
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
 	bit_pos = find_next_bit_le(&dentry_blk->dentry_bitmap,
 					NR_DENTRY_IN_BLOCK, 0);
@@ -127,8 +156,14 @@ found:
 }
 
 static struct f2fs_dir_entry *find_in_level(struct inode *dir,
+<<<<<<< HEAD
 		unsigned int level, const char *name, size_t namelen,
 			f2fs_hash_t namehash, struct page **res_page)
+=======
+					unsigned int level,
+					struct f2fs_filename *fname,
+					struct page **res_page)
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 {
 	int s = GET_DENTRY_SLOTS(namelen);
 	unsigned int nbucket, nblock;
@@ -188,8 +223,18 @@ struct f2fs_dir_entry *f2fs_find_entry(struct inode *dir,
 	f2fs_hash_t name_hash;
 	unsigned int max_depth;
 	unsigned int level;
+<<<<<<< HEAD
 
 	if (namelen > F2FS_NAME_LEN)
+=======
+	struct f2fs_filename fname;
+	int err;
+
+	*res_page = NULL;
+
+	err = f2fs_fname_setup_filename(dir, child, 1, &fname);
+	if (err)
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 		return NULL;
 
 	if (npages == 0)
@@ -206,10 +251,15 @@ struct f2fs_dir_entry *f2fs_find_entry(struct inode *dir,
 		if (de)
 			break;
 	}
+<<<<<<< HEAD
 	if (!de && F2FS_I(dir)->chash != name_hash) {
 		F2FS_I(dir)->chash = name_hash;
 		F2FS_I(dir)->clevel = level - 1;
 	}
+=======
+out:
+	f2fs_fname_free_filename(&fname);
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	return de;
 }
 
@@ -334,10 +384,25 @@ static int init_inode_metadata(struct inode *inode,
 			}
 		}
 
+<<<<<<< HEAD
 		err = f2fs_init_acl(inode, dir);
 		if (err) {
 			remove_inode_page(inode);
 			return err;
+=======
+		err = f2fs_init_acl(inode, dir, page, dpage);
+		if (err)
+			goto put_error;
+
+		err = f2fs_init_security(inode, dir, name, page);
+		if (err)
+			goto put_error;
+
+		if (f2fs_encrypted_inode(dir) && f2fs_may_encrypt(inode)) {
+			err = f2fs_inherit_context(dir, inode, page);
+			if (err)
+				goto put_error;
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 		}
 	} else {
 		struct page *ipage;
@@ -422,9 +487,32 @@ int __f2fs_add_link(struct inode *dir, const struct qstr *name, struct inode *in
 	size_t namelen = name->len;
 	struct page *dentry_page = NULL;
 	struct f2fs_dentry_block *dentry_blk = NULL;
+<<<<<<< HEAD
 	int slots = GET_DENTRY_SLOTS(namelen);
 	int err = 0;
 	int i;
+=======
+	struct f2fs_dentry_ptr d;
+	struct page *page = NULL;
+	struct f2fs_filename fname;
+	struct qstr new_name;
+	int slots, err;
+
+	err = f2fs_fname_setup_filename(dir, name, 0, &fname);
+	if (err)
+		return err;
+
+	new_name.name = fname_name(&fname);
+	new_name.len = fname_len(&fname);
+
+	if (f2fs_has_inline_dentry(dir)) {
+		err = f2fs_add_inline_entry(dir, &new_name, inode, ino, mode);
+		if (!err || err != -EAGAIN)
+			goto out;
+		else
+			err = 0;
+	}
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
 	dentry_hash = f2fs_dentry_hash(name->name, name->len);
 	level = 0;
@@ -488,6 +576,12 @@ add_dentry:
 fail:
 	kunmap(dentry_page);
 	f2fs_put_page(dentry_page, 1);
+<<<<<<< HEAD
+=======
+out:
+	f2fs_fname_free_filename(&fname);
+	f2fs_update_time(F2FS_I_SB(dir), REQ_TIME);
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	return err;
 }
 
@@ -591,6 +685,72 @@ bool f2fs_empty_dir(struct inode *dir)
 	return true;
 }
 
+<<<<<<< HEAD
+=======
+bool f2fs_fill_dentries(struct file *file, void *dirent, filldir_t filldir,
+		struct f2fs_dentry_ptr *d, unsigned int n, unsigned int bit_pos,
+		struct f2fs_str *fstr)
+{
+	unsigned int start_bit_pos = bit_pos;
+	unsigned char d_type;
+	struct f2fs_dir_entry *de = NULL;
+	struct f2fs_str de_name = FSTR_INIT(NULL, 0);
+	unsigned char *types = f2fs_filetype_table;
+	int over;
+
+	while (bit_pos < d->max) {
+		d_type = DT_UNKNOWN;
+		bit_pos = find_next_bit_le(d->bitmap, d->max, bit_pos);
+		if (bit_pos >= d->max)
+			break;
+
+		de = &d->dentry[bit_pos];
+
+		if (de->name_len == 0) {
+			bit_pos++;
+			continue;
+		}
+
+		if (types && de->file_type < F2FS_FT_MAX)
+			d_type = types[de->file_type];
+
+		de_name.name = d->filename[bit_pos];
+		de_name.len = le16_to_cpu(de->name_len);
+
+		if (f2fs_encrypted_inode(d->inode)) {
+			int save_len = fstr->len;
+			int ret;
+
+			de_name.name = kmalloc(de_name.len, GFP_NOFS);
+			if (!de_name.name)
+				return false;
+
+			memcpy(de_name.name, d->filename[bit_pos], de_name.len);
+
+			ret = f2fs_fname_disk_to_usr(d->inode, &de->hash_code,
+							&de_name, fstr);
+			kfree(de_name.name);
+			if (ret < 0)
+				return true;
+
+			de_name = *fstr;
+			fstr->len = save_len;
+		}
+
+		over = filldir(dirent, de_name.name, de_name.len,
+					(n * d->max) + bit_pos,
+					le32_to_cpu(de->ino), d_type);
+		if (over) {
+			file->f_pos += bit_pos - start_bit_pos;
+			return true;
+		}
+
+		bit_pos += GET_DENTRY_SLOTS(le16_to_cpu(de->name_len));
+	}
+	return false;
+}
+
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 static int f2fs_readdir(struct file *file, void *dirent, filldir_t filldir)
 {
 	unsigned long pos = file->f_pos;
@@ -602,9 +762,33 @@ static int f2fs_readdir(struct file *file, void *dirent, filldir_t filldir)
 	struct f2fs_dentry_block *dentry_blk = NULL;
 	struct f2fs_dir_entry *de = NULL;
 	struct page *dentry_page = NULL;
+<<<<<<< HEAD
 	unsigned int n = 0;
 	unsigned char d_type = DT_UNKNOWN;
 	int slots;
+=======
+	struct file_ra_state *ra = &file->f_ra;
+	struct f2fs_dentry_ptr d;
+	struct f2fs_str fstr = FSTR_INIT(NULL, 0);
+	unsigned int n = 0;
+	int err = 0;
+
+	if (f2fs_encrypted_inode(inode)) {
+		err = f2fs_get_encryption_info(inode);
+		if (err)
+			return err;
+
+		err = f2fs_fname_crypto_alloc_buffer(inode, F2FS_NAME_LEN,
+								&fstr);
+		if (err < 0)
+			return err;
+	}
+
+	if (f2fs_has_inline_dentry(inode)) {
+		err = f2fs_read_inline_dir(file, dirent, filldir, &fstr);
+		goto out;
+	}
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
 	types = f2fs_filetype_table;
 	bit_pos = (pos % NR_DENTRY_IN_BLOCK);
@@ -652,7 +836,19 @@ success:
 		kunmap(dentry_page);
 		f2fs_put_page(dentry_page, 1);
 	}
+<<<<<<< HEAD
 
+=======
+out:
+	f2fs_fname_crypto_free_buffer(&fstr);
+	return err;
+}
+
+static int f2fs_dir_open(struct inode *inode, struct file *filp)
+{
+	if (f2fs_encrypted_inode(inode))
+		return f2fs_get_encryption_info(inode) ? -EACCES : 0;
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	return 0;
 }
 

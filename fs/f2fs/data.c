@@ -24,6 +24,62 @@
 #include "segment.h"
 #include <trace/events/f2fs.h>
 
+<<<<<<< HEAD
+=======
+static void f2fs_read_end_io(struct bio *bio, int err)
+{
+	struct bio_vec *bvec;
+	int i;
+
+	if (f2fs_bio_encrypted(bio)) {
+		if (err) {
+			f2fs_release_crypto_ctx(bio->bi_private);
+		} else {
+			f2fs_end_io_crypto_work(bio->bi_private, bio);
+			return;
+		}
+	}
+
+	bio_for_each_segment_all(bvec, bio, i) {
+		struct page *page = bvec->bv_page;
+
+		if (!err) {
+			SetPageUptodate(page);
+		} else {
+			ClearPageUptodate(page);
+			SetPageError(page);
+		}
+		unlock_page(page);
+	}
+	bio_put(bio);
+}
+
+static void f2fs_write_end_io(struct bio *bio, int err)
+{
+	struct f2fs_sb_info *sbi = bio->bi_private;
+	struct bio_vec *bvec;
+	int i;
+
+	bio_for_each_segment_all(bvec, bio, i) {
+		struct page *page = bvec->bv_page;
+
+		f2fs_restore_and_release_control_page(&page);
+
+		if (unlikely(err)) {
+			set_bit(AS_EIO, &page->mapping->flags);
+			f2fs_stop_checkpoint(sbi);
+		}
+		end_page_writeback(page);
+		dec_page_count(sbi, F2FS_WRITEBACK);
+	}
+
+	if (!get_pages(sbi, F2FS_WRITEBACK) && wq_has_sleeper(&sbi->cp_wait))
+		wake_up(&sbi->cp_wait);
+
+	bio_put(bio);
+}
+
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 /*
  * Lock ordering for the change of data block address:
  * ->data_page
@@ -72,10 +128,38 @@ static int check_extent_cache(struct inode *inode, pgoff_t pgofs,
 	pgoff_t start_fofs, end_fofs;
 	block_t start_blkaddr;
 
+<<<<<<< HEAD
 	read_lock(&fi->ext.ext_lock);
 	if (fi->ext.len == 0) {
 		read_unlock(&fi->ext.ext_lock);
 		return 0;
+=======
+	if (!io->bio)
+		return false;
+
+	if (!inode && !page && !ino)
+		return true;
+
+	bio_for_each_segment_all(bvec, io->bio, i) {
+
+		if (bvec->bv_page->mapping) {
+			target = bvec->bv_page;
+		} else {
+			struct f2fs_crypto_ctx *ctx;
+
+			/* encrypted page */
+			ctx = (struct f2fs_crypto_ctx *)page_private(
+								bvec->bv_page);
+			target = ctx->w.control_page;
+		}
+
+		if (inode && inode == target->mapping->host)
+			return true;
+		if (page && page == target)
+			return true;
+		if (ino && ino == ino_of_node(target))
+			return true;
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	}
 
 	sbi->total_hit_ext++;
@@ -94,7 +178,52 @@ static int check_extent_cache(struct inode *inode, pgoff_t pgofs,
 		if (count < (UINT_MAX >> blkbits))
 			bh_result->b_size = (count << blkbits);
 		else
+<<<<<<< HEAD
 			bh_result->b_size = UINT_MAX;
+=======
+			io->fio.rw = WRITE_FLUSH_FUA | REQ_META | REQ_PRIO;
+	}
+	__submit_merged_bio(io);
+out:
+	up_write(&io->io_rwsem);
+}
+
+void f2fs_submit_merged_bio(struct f2fs_sb_info *sbi, enum page_type type,
+									int rw)
+{
+	__f2fs_submit_merged_bio(sbi, NULL, NULL, 0, type, rw);
+}
+
+void f2fs_submit_merged_bio_cond(struct f2fs_sb_info *sbi,
+				struct inode *inode, struct page *page,
+				nid_t ino, enum page_type type, int rw)
+{
+	if (has_merged_page(sbi, inode, page, ino, type))
+		__f2fs_submit_merged_bio(sbi, inode, page, ino, type, rw);
+}
+
+void f2fs_flush_merged_bios(struct f2fs_sb_info *sbi)
+{
+	f2fs_submit_merged_bio(sbi, DATA, WRITE);
+	f2fs_submit_merged_bio(sbi, NODE, WRITE);
+	f2fs_submit_merged_bio(sbi, META, WRITE);
+}
+
+/*
+ * Fill the locked page with data located in the block address.
+ * Return unlocked page.
+ */
+int f2fs_submit_page_bio(struct f2fs_io_info *fio)
+{
+	struct bio *bio;
+	struct page *page = fio->encrypted_page ? fio->encrypted_page : fio->page;
+
+	trace_f2fs_submit_page_bio(page, fio);
+	f2fs_trace_ios(fio, 0);
+
+	/* Allocate a new bio */
+	bio = __bio_alloc(fio->sbi, fio->new_blkaddr, 1, is_read_io(fio->rw));
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
 		sbi->read_hit_ext++;
 		read_unlock(&fi->ext.ext_lock);
@@ -405,6 +534,7 @@ static int get_data_block_ro(struct inode *inode, sector_t iblock,
 	/* Get the page offset from the block offset(iblock) */
 	pgofs =	(pgoff_t)(iblock >> (PAGE_CACHE_SHIFT - blkbits));
 
+<<<<<<< HEAD
 	if (check_extent_cache(inode, pgofs, bh_result)) {
 		trace_f2fs_get_data_block(inode, iblock, bh_result, 0);
 		return 0;
@@ -417,6 +547,44 @@ static int get_data_block_ro(struct inode *inode, sector_t iblock,
 		trace_f2fs_get_data_block(inode, iblock, bh_result, err);
 		return (err == -ENOENT) ? 0 : err;
 	}
+=======
+		/*
+		 * This page will go to BIO.  Do we need to send this
+		 * BIO off first?
+		 */
+		if (bio && (last_block_in_bio != block_nr - 1)) {
+submit_and_realloc:
+			submit_bio(READ, bio);
+			bio = NULL;
+		}
+		if (bio == NULL) {
+			struct f2fs_crypto_ctx *ctx = NULL;
+
+			if (f2fs_encrypted_inode(inode) &&
+					S_ISREG(inode->i_mode)) {
+
+				ctx = f2fs_get_crypto_ctx(inode);
+				if (IS_ERR(ctx))
+					goto set_error_page;
+
+				/* wait the page to be moved by cleaning */
+				f2fs_wait_on_encrypted_page_writeback(
+						F2FS_I_SB(inode), block_nr);
+			}
+
+			bio = bio_alloc(GFP_KERNEL,
+				min_t(int, nr_pages, bio_get_nr_vecs(bdev)));
+			if (!bio) {
+				if (ctx)
+					f2fs_release_crypto_ctx(ctx);
+				goto set_error_page;
+			}
+			bio->bi_bdev = bdev;
+			bio->bi_sector = SECTOR_FROM_BLOCK(block_nr);
+			bio->bi_end_io = f2fs_read_end_io;
+			bio->bi_private = ctx;
+		}
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
 	/* It does not support data allocation */
 	BUG_ON(create);
@@ -474,6 +642,23 @@ int do_write_data_page(struct page *page)
 	/* This page is already truncated */
 	if (old_blk_addr == NULL_ADDR)
 		goto out_writepage;
+<<<<<<< HEAD
+=======
+	}
+
+	if (f2fs_encrypted_inode(inode) && S_ISREG(inode->i_mode)) {
+
+		/* wait for GCed encrypted page writeback */
+		f2fs_wait_on_encrypted_page_writeback(F2FS_I_SB(inode),
+							fio->old_blkaddr);
+
+		fio->encrypted_page = f2fs_encrypt(inode, fio->page);
+		if (IS_ERR(fio->encrypted_page)) {
+			err = PTR_ERR(fio->encrypted_page);
+			goto out_writepage;
+		}
+	}
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
 	set_page_writeback(page);
 
@@ -672,6 +857,16 @@ repeat:
 			f2fs_put_page(page, 1);
 			goto repeat;
 		}
+<<<<<<< HEAD
+=======
+
+		/* avoid symlink page */
+		if (f2fs_encrypted_inode(inode) && S_ISREG(inode->i_mode)) {
+			err = f2fs_decrypt(page);
+			if (err)
+				goto fail;
+		}
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	}
 out:
 	SetPageUptodate(page);

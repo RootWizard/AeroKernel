@@ -271,5 +271,45 @@ void f2fs_evict_inode(struct inode *inode)
 
 	sb_end_intwrite(inode->i_sb);
 no_delete:
+<<<<<<< HEAD
+=======
+	stat_dec_inline_xattr(inode);
+	stat_dec_inline_dir(inode);
+	stat_dec_inline_inode(inode);
+
+	invalidate_mapping_pages(NODE_MAPPING(sbi), inode->i_ino, inode->i_ino);
+	if (xnid)
+		invalidate_mapping_pages(NODE_MAPPING(sbi), xnid, xnid);
+	if (is_inode_flag_set(fi, FI_APPEND_WRITE))
+		add_ino_entry(sbi, inode->i_ino, APPEND_INO);
+	if (is_inode_flag_set(fi, FI_UPDATE_WRITE))
+		add_ino_entry(sbi, inode->i_ino, UPDATE_INO);
+	if (is_inode_flag_set(fi, FI_FREE_NID)) {
+		if (err && err != -ENOENT)
+			alloc_nid_done(sbi, inode->i_ino);
+		else
+			alloc_nid_failed(sbi, inode->i_ino);
+		clear_inode_flag(fi, FI_FREE_NID);
+	}
+
+	if (err && err != -ENOENT) {
+		if (!exist_written_data(sbi, inode->i_ino, ORPHAN_INO)) {
+			/*
+			 * get here because we failed to release resource
+			 * of inode previously, reminder our user to run fsck
+			 * for fixing.
+			 */
+			set_sbi_flag(sbi, SBI_NEED_FSCK);
+			f2fs_msg(sbi->sb, KERN_WARNING,
+				"inode (ino:%lu) resource leak, run fsck "
+				"to fix this issue!", inode->i_ino);
+		}
+	}
+out_clear:
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+	if (fi->i_crypt_info)
+		f2fs_free_encryption_info(inode, fi->i_crypt_info);
+#endif
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	clear_inode(inode);
 }

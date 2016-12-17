@@ -95,6 +95,18 @@ static struct inode *f2fs_alloc_inode(struct super_block *sb)
 
 	set_inode_flag(fi, FI_NEW_INODE);
 
+<<<<<<< HEAD
+=======
+	if (test_opt(F2FS_SB(sb), INLINE_XATTR))
+		set_inode_flag(fi, FI_INLINE_XATTR);
+
+	/* Will be used by directory only */
+	fi->i_dir_level = F2FS_SB(sb)->dir_level;
+
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+	fi->i_crypt_info = NULL;
+#endif
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	return &fi->vfs_inode;
 }
 
@@ -107,7 +119,39 @@ static int f2fs_drop_inode(struct inode *inode)
 	 *    - f2fs_gc -> iput -> evict
 	 *       - inode_wait_for_writeback(inode)
 	 */
+<<<<<<< HEAD
 	if (!inode_unhashed(inode) && inode->i_state & I_SYNC)
+=======
+	if (!inode_unhashed(inode) && inode->i_state & I_SYNC) {
+		if (!inode->i_nlink && !is_bad_inode(inode)) {
+			/* to avoid evict_inode call simultaneously */
+			atomic_inc(&inode->i_count);
+			spin_unlock(&inode->i_lock);
+
+			/* some remained atomic pages should discarded */
+			if (f2fs_is_atomic_file(inode))
+				drop_inmem_pages(inode);
+
+			/* should remain fi->extent_tree for writepage */
+			f2fs_destroy_extent_node(inode);
+
+			sb_start_intwrite(inode->i_sb);
+			i_size_write(inode, 0);
+
+			if (F2FS_HAS_BLOCKS(inode))
+				f2fs_truncate(inode, true);
+
+			sb_end_intwrite(inode->i_sb);
+
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+			if (F2FS_I(inode)->i_crypt_info)
+				f2fs_free_encryption_info(inode,
+					F2FS_I(inode)->i_crypt_info);
+#endif
+			spin_lock(&inode->i_lock);
+			atomic_dec(&inode->i_count);
+		}
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 		return 0;
 	return generic_drop_inode(inode);
 }
@@ -258,8 +302,13 @@ static struct super_operations f2fs_sops = {
 	.statfs		= f2fs_statfs,
 };
 
+<<<<<<< HEAD
 static struct inode *f2fs_nfs_get_inode(struct super_block *sb,
 		u64 ino, u32 generation)
+=======
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+static int f2fs_get_context(struct inode *inode, void *ctx, size_t len)
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 {
 	struct f2fs_sb_info *sbi = F2FS_SB(sb);
 	struct inode *inode;
@@ -764,11 +813,55 @@ static int __init init_f2fs_fs(void)
 		goto fail;
 	err = create_checkpoint_caches();
 	if (err)
+<<<<<<< HEAD
 		goto fail;
 	err = register_filesystem(&f2fs_fs_type);
 	if (err)
 		goto fail;
 	f2fs_create_root_stats();
+=======
+		goto free_segment_manager_caches;
+	err = create_extent_cache();
+	if (err)
+		goto free_checkpoint_caches;
+	f2fs_kset = kset_create_and_add("f2fs", NULL, fs_kobj);
+	if (!f2fs_kset) {
+		err = -ENOMEM;
+		goto free_extent_cache;
+	}
+	err = f2fs_init_crypto();
+	if (err)
+		goto free_kset;
+
+	register_shrinker(&f2fs_shrinker_info);
+
+	err = register_filesystem(&f2fs_fs_type);
+	if (err)
+		goto free_shrinker;
+	err = f2fs_create_root_stats();
+	if (err)
+		goto free_filesystem;
+	f2fs_proc_root = proc_mkdir("fs/f2fs", NULL);
+	return 0;
+
+free_filesystem:
+	unregister_filesystem(&f2fs_fs_type);
+free_shrinker:
+	unregister_shrinker(&f2fs_shrinker_info);
+	f2fs_exit_crypto();
+free_kset:
+	kset_unregister(f2fs_kset);
+free_extent_cache:
+	destroy_extent_cache();
+free_checkpoint_caches:
+	destroy_checkpoint_caches();
+free_segment_manager_caches:
+	destroy_segment_manager_caches();
+free_node_manager_caches:
+	destroy_node_manager_caches();
+free_inodecache:
+	destroy_inodecache();
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 fail:
 	return err;
 }
@@ -777,6 +870,11 @@ static void __exit exit_f2fs_fs(void)
 {
 	f2fs_destroy_root_stats();
 	unregister_filesystem(&f2fs_fs_type);
+<<<<<<< HEAD
+=======
+	f2fs_exit_crypto();
+	destroy_extent_cache();
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	destroy_checkpoint_caches();
 	destroy_gc_caches();
 	destroy_node_manager_caches();

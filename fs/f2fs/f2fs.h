@@ -17,6 +17,27 @@
 #include <linux/slab.h>
 #include <linux/crc32.h>
 #include <linux/magic.h>
+<<<<<<< HEAD
+=======
+#include <linux/kobject.h>
+#include <linux/sched.h>
+#include <linux/vmalloc.h>
+#include <linux/bio.h>
+#include <linux/blkdev.h>
+
+#ifdef CONFIG_F2FS_CHECK_FS
+#define f2fs_bug_on(sbi, condition)	BUG_ON(condition)
+#define f2fs_down_write(x, y)	down_write(x)
+#else
+#define f2fs_bug_on(sbi, condition)					\
+	do {								\
+		if (unlikely(condition)) {				\
+			WARN_ON(1);					\
+			set_sbi_flag(sbi, SBI_NEED_FSCK);		\
+		}							\
+	} while (0)
+#endif
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
 /*
  * For mount options
@@ -106,8 +127,40 @@ static inline int update_sits_in_cursum(struct f2fs_summary_block *rs, int i)
 /*
  * ioctl commands
  */
+<<<<<<< HEAD
 #define F2FS_IOC_GETFLAGS               FS_IOC_GETFLAGS
 #define F2FS_IOC_SETFLAGS               FS_IOC_SETFLAGS
+=======
+#define F2FS_IOC_GETFLAGS		FS_IOC_GETFLAGS
+#define F2FS_IOC_SETFLAGS		FS_IOC_SETFLAGS
+#define F2FS_IOC_GETVERSION		FS_IOC_GETVERSION
+#define FS_IOC_SHUTDOWN        _IOR('X', 125, __u32)   /* Shutdown */
+
+/*
+ * Flags for going down operation used by FS_IOC_GOINGDOWN
+ */
+#define FS_GOING_DOWN_FULLSYNC 0x0     /* going down with full sync */
+#define FS_GOING_DOWN_METASYNC 0x1     /* going down with metadata */
+#define FS_GOING_DOWN_NOSYNC   0x2     /* going down */
+#define FS_GOING_DOWN_METAFLUSH	0x3	/* going down with meta flush */
+
+#define F2FS_IOCTL_MAGIC		0xf5
+#define F2FS_IOC_START_ATOMIC_WRITE	_IO(F2FS_IOCTL_MAGIC, 1)
+#define F2FS_IOC_COMMIT_ATOMIC_WRITE	_IO(F2FS_IOCTL_MAGIC, 2)
+#define F2FS_IOC_START_VOLATILE_WRITE	_IO(F2FS_IOCTL_MAGIC, 3)
+#define F2FS_IOC_RELEASE_VOLATILE_WRITE	_IO(F2FS_IOCTL_MAGIC, 4)
+#define F2FS_IOC_ABORT_VOLATILE_WRITE	_IO(F2FS_IOCTL_MAGIC, 5)
+#define F2FS_IOC_GARBAGE_COLLECT	_IO(F2FS_IOCTL_MAGIC, 6)
+#define F2FS_IOC_WRITE_CHECKPOINT	_IO(F2FS_IOCTL_MAGIC, 7)
+#define F2FS_IOC_DEFRAGMENT		_IO(F2FS_IOCTL_MAGIC, 8)
+
+#define F2FS_IOC_SET_ENCRYPTION_POLICY					\
+		_IOR('f', 19, struct f2fs_encryption_policy)
+#define F2FS_IOC_GET_ENCRYPTION_PWSALT					\
+		_IOW('f', 20, __u8[16])
+#define F2FS_IOC_GET_ENCRYPTION_POLICY					\
+		_IOW('f', 21, struct f2fs_encryption_policy)
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
 #if defined(__KERNEL__) && defined(CONFIG_COMPAT)
 /*
@@ -120,11 +173,69 @@ static inline int update_sits_in_cursum(struct f2fs_summary_block *rs, int i)
 /*
  * For INODE and NODE manager
  */
+<<<<<<< HEAD
 #define XATTR_NODE_OFFSET	(-1)	/*
 					 * store xattrs to one node block per
 					 * file keeping -1 as its node offset to
 					 * distinguish from index node blocks.
 					 */
+=======
+/* for directory operations */
+struct f2fs_str {
+	unsigned char *name;
+	u32 len;
+};
+
+struct f2fs_filename {
+	const struct qstr *usr_fname;
+	struct f2fs_str disk_name;
+	f2fs_hash_t hash;
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+	struct f2fs_str crypto_buf;
+#endif
+};
+
+#define FSTR_INIT(n, l)		{ .name = n, .len = l }
+#define FSTR_TO_QSTR(f)		QSTR_INIT((f)->name, (f)->len)
+#define fname_name(p)		((p)->disk_name.name)
+#define fname_len(p)		((p)->disk_name.len)
+
+struct f2fs_dentry_ptr {
+	struct inode *inode;
+	const void *bitmap;
+	struct f2fs_dir_entry *dentry;
+	__u8 (*filename)[F2FS_SLOT_LEN];
+	int max;
+};
+
+static inline void make_dentry_ptr(struct inode *inode,
+		struct f2fs_dentry_ptr *d, void *src, int type)
+{
+	d->inode = inode;
+
+	if (type == 1) {
+		struct f2fs_dentry_block *t = (struct f2fs_dentry_block *)src;
+		d->max = NR_DENTRY_IN_BLOCK;
+		d->bitmap = &t->dentry_bitmap;
+		d->dentry = t->dentry;
+		d->filename = t->filename;
+	} else {
+		struct f2fs_inline_dentry *t = (struct f2fs_inline_dentry *)src;
+		d->max = NR_INLINE_DENTRY;
+		d->bitmap = &t->dentry_bitmap;
+		d->dentry = t->dentry;
+		d->filename = t->filename;
+	}
+}
+
+/*
+ * XATTR_NODE_OFFSET stores xattrs to one node block per file keeping -1
+ * as its node offset to distinguish from index node blocks.
+ * But some bits are used to mark the node block.
+ */
+#define XATTR_NODE_OFFSET	((((unsigned int)-1) << OFFSET_BIT_SHIFT) \
+				>> OFFSET_BIT_SHIFT)
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 enum {
 	ALLOC_NODE,			/* allocate a new node page if needed */
 	LOOKUP_NODE,			/* look up a node without readahead */
@@ -148,7 +259,36 @@ struct extent_info {
  * i_advise uses FADVISE_XXX_BIT. We can add additional hints later.
  */
 #define FADVISE_COLD_BIT	0x01
+<<<<<<< HEAD
 #define FADVISE_CP_BIT		0x02
+=======
+#define FADVISE_LOST_PINO_BIT	0x02
+#define FADVISE_ENCRYPT_BIT	0x04
+#define FADVISE_ENC_NAME_BIT	0x08
+
+#define file_is_cold(inode)	is_file(inode, FADVISE_COLD_BIT)
+#define file_wrong_pino(inode)	is_file(inode, FADVISE_LOST_PINO_BIT)
+#define file_set_cold(inode)	set_file(inode, FADVISE_COLD_BIT)
+#define file_lost_pino(inode)	set_file(inode, FADVISE_LOST_PINO_BIT)
+#define file_clear_cold(inode)	clear_file(inode, FADVISE_COLD_BIT)
+#define file_got_pino(inode)	clear_file(inode, FADVISE_LOST_PINO_BIT)
+#define file_is_encrypt(inode)	is_file(inode, FADVISE_ENCRYPT_BIT)
+#define file_set_encrypt(inode)	set_file(inode, FADVISE_ENCRYPT_BIT)
+#define file_clear_encrypt(inode) clear_file(inode, FADVISE_ENCRYPT_BIT)
+#define file_enc_name(inode)	is_file(inode, FADVISE_ENC_NAME_BIT)
+#define file_set_enc_name(inode) set_file(inode, FADVISE_ENC_NAME_BIT)
+
+/* Encryption algorithms */
+#define F2FS_ENCRYPTION_MODE_INVALID		0
+#define F2FS_ENCRYPTION_MODE_AES_256_XTS	1
+#define F2FS_ENCRYPTION_MODE_AES_256_GCM	2
+#define F2FS_ENCRYPTION_MODE_AES_256_CBC	3
+#define F2FS_ENCRYPTION_MODE_AES_256_CTS	4
+
+#include "f2fs_crypto.h"
+
+#define DEF_DIR_LEVEL		0
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
 struct f2fs_inode_info {
 	struct inode vfs_inode;		/* serve a vfs inode */
@@ -164,7 +304,22 @@ struct f2fs_inode_info {
 	f2fs_hash_t chash;		/* hash value of given file name */
 	unsigned int clevel;		/* maximum level of given file name */
 	nid_t i_xattr_nid;		/* node id that contains xattrs */
+<<<<<<< HEAD
 	struct extent_info ext;		/* in-memory extent cache entry */
+=======
+	unsigned long long xattr_ver;	/* cp version of xattr modification */
+
+	struct list_head dirty_list;	/* linked in global dirty list */
+	struct list_head inmem_pages;	/* inmemory pages managed by f2fs */
+	struct mutex inmem_lock;	/* lock for inmemory pages */
+
+	struct extent_tree *extent_tree;	/* cached extent_tree entry */
+
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+	/* Encryption params */
+	struct f2fs_crypt_info *i_crypt_info;
+#endif
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 };
 
 static inline void get_extent_info(struct extent_info *ext,
@@ -907,6 +1062,22 @@ struct dentry *f2fs_get_parent(struct dentry *child);
 /*
  * dir.c
  */
+<<<<<<< HEAD
+=======
+extern unsigned char f2fs_filetype_table[F2FS_FT_MAX];
+void set_de_type(struct f2fs_dir_entry *, umode_t);
+struct f2fs_dir_entry *find_target_dentry(struct f2fs_filename *,
+			f2fs_hash_t, int *, struct f2fs_dentry_ptr *);
+bool f2fs_fill_dentries(struct file *, void *, filldir_t,
+			struct f2fs_dentry_ptr *, unsigned int, unsigned int, struct f2fs_str *);
+void do_make_empty_dir(struct inode *, struct inode *,
+			struct f2fs_dentry_ptr *);
+struct page *init_inode_metadata(struct inode *, struct inode *,
+			const struct qstr *, struct page *);
+void update_parent_metadata(struct inode *, struct inode *, unsigned int);
+int room_for_filename(const void *, int, int);
+void f2fs_drop_nlink(struct inode *, struct inode *, struct page *);
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 struct f2fs_dir_entry *f2fs_find_entry(struct inode *, struct qstr *,
 							struct page **);
 struct f2fs_dir_entry *f2fs_parent_dir(struct inode *, struct page **);
@@ -1133,4 +1304,187 @@ extern const struct address_space_operations f2fs_meta_aops;
 extern const struct inode_operations f2fs_dir_inode_operations;
 extern const struct inode_operations f2fs_symlink_inode_operations;
 extern const struct inode_operations f2fs_special_inode_operations;
+<<<<<<< HEAD
+=======
+extern struct kmem_cache *inode_entry_slab;
+
+/*
+ * inline.c
+ */
+bool f2fs_may_inline_data(struct inode *);
+bool f2fs_may_inline_dentry(struct inode *);
+void read_inline_data(struct page *, struct page *);
+bool truncate_inline_inode(struct page *, u64);
+int f2fs_read_inline_data(struct inode *, struct page *);
+int f2fs_convert_inline_page(struct dnode_of_data *, struct page *);
+int f2fs_convert_inline_inode(struct inode *);
+int f2fs_write_inline_data(struct inode *, struct page *);
+bool recover_inline_data(struct inode *, struct page *);
+struct f2fs_dir_entry *find_in_inline_dir(struct inode *,
+			struct f2fs_filename *, struct page **);
+struct f2fs_dir_entry *f2fs_parent_inline_dir(struct inode *, struct page **);
+int make_empty_inline_dir(struct inode *inode, struct inode *, struct page *);
+int f2fs_add_inline_entry(struct inode *, const struct qstr *, struct inode *,
+						nid_t, umode_t);
+void f2fs_delete_inline_entry(struct f2fs_dir_entry *, struct page *,
+						struct inode *, struct inode *);
+bool f2fs_empty_inline_dir(struct inode *);
+int f2fs_read_inline_dir(struct file *, void *, filldir_t, struct f2fs_str *);
+int f2fs_inline_data_fiemap(struct inode *,
+		struct fiemap_extent_info *, __u64, __u64);
+
+/*
+ * shrinker.c
+ */
+int f2fs_shrink_count(struct shrinker *, struct shrink_control *);
+int f2fs_shrink_scan(struct shrinker *, struct shrink_control *);
+void f2fs_join_shrinker(struct f2fs_sb_info *);
+void f2fs_leave_shrinker(struct f2fs_sb_info *);
+
+/*
+ * extent_cache.c
+ */
+unsigned int f2fs_shrink_extent_tree(struct f2fs_sb_info *, int);
+bool f2fs_init_extent_tree(struct inode *, struct f2fs_extent *);
+unsigned int f2fs_destroy_extent_node(struct inode *);
+void f2fs_destroy_extent_tree(struct inode *);
+bool f2fs_lookup_extent_cache(struct inode *, pgoff_t, struct extent_info *);
+void f2fs_update_extent_cache(struct dnode_of_data *);
+void f2fs_update_extent_cache_range(struct dnode_of_data *dn,
+						pgoff_t, block_t, unsigned int);
+void init_extent_cache_info(struct f2fs_sb_info *);
+int __init create_extent_cache(void);
+void destroy_extent_cache(void);
+
+/*
+ * crypto support
+ */
+static inline int f2fs_encrypted_inode(struct inode *inode)
+{
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+	return file_is_encrypt(inode);
+#else
+	return 0;
+#endif
+}
+
+static inline void f2fs_set_encrypted_inode(struct inode *inode)
+{
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+	file_set_encrypt(inode);
+#endif
+}
+
+static inline bool f2fs_bio_encrypted(struct bio *bio)
+{
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+	return unlikely(bio->bi_private != NULL);
+#else
+	return false;
+#endif
+}
+
+static inline int f2fs_sb_has_crypto(struct super_block *sb)
+{
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+	return F2FS_HAS_FEATURE(sb, F2FS_FEATURE_ENCRYPT);
+#else
+	return 0;
+#endif
+}
+
+static inline bool f2fs_may_encrypt(struct inode *inode)
+{
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+	mode_t mode = inode->i_mode;
+
+	return (S_ISREG(mode) || S_ISDIR(mode) || S_ISLNK(mode));
+#else
+	return 0;
+#endif
+}
+
+/* crypto_policy.c */
+int f2fs_is_child_context_consistent_with_parent(struct inode *,
+							struct inode *);
+int f2fs_inherit_context(struct inode *, struct inode *, struct page *);
+int f2fs_process_policy(const struct f2fs_encryption_policy *, struct inode *);
+int f2fs_get_policy(struct inode *, struct f2fs_encryption_policy *);
+
+/* crypt.c */
+extern struct kmem_cache *f2fs_crypt_info_cachep;
+bool f2fs_valid_contents_enc_mode(uint32_t);
+uint32_t f2fs_validate_encryption_key_size(uint32_t, uint32_t);
+struct f2fs_crypto_ctx *f2fs_get_crypto_ctx(struct inode *);
+void f2fs_release_crypto_ctx(struct f2fs_crypto_ctx *);
+struct page *f2fs_encrypt(struct inode *, struct page *);
+int f2fs_decrypt(struct page *);
+void f2fs_end_io_crypto_work(struct f2fs_crypto_ctx *, struct bio *);
+
+/* crypto_key.c */
+void f2fs_free_encryption_info(struct inode *, struct f2fs_crypt_info *);
+int _f2fs_get_encryption_info(struct inode *inode);
+
+/* crypto_fname.c */
+bool f2fs_valid_filenames_enc_mode(uint32_t);
+u32 f2fs_fname_crypto_round_up(u32, u32);
+unsigned f2fs_fname_encrypted_size(struct inode *, u32);
+int f2fs_fname_crypto_alloc_buffer(struct inode *, u32, struct f2fs_str *);
+int f2fs_fname_disk_to_usr(struct inode *, f2fs_hash_t *,
+			const struct f2fs_str *, struct f2fs_str *);
+int f2fs_fname_usr_to_disk(struct inode *, const struct qstr *,
+			struct f2fs_str *);
+
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+void f2fs_restore_and_release_control_page(struct page **);
+void f2fs_restore_control_page(struct page *);
+
+int __init f2fs_init_crypto(void);
+int f2fs_crypto_initialize(void);
+void f2fs_exit_crypto(void);
+
+int f2fs_has_encryption_key(struct inode *);
+
+static inline int f2fs_get_encryption_info(struct inode *inode)
+{
+	struct f2fs_crypt_info *ci = F2FS_I(inode)->i_crypt_info;
+
+	if (!ci ||
+		(ci->ci_keyring_key &&
+		 (ci->ci_keyring_key->flags & ((1 << KEY_FLAG_INVALIDATED) |
+					       (1 << KEY_FLAG_REVOKED) |
+					       (1 << KEY_FLAG_DEAD)))))
+		return _f2fs_get_encryption_info(inode);
+	return 0;
+}
+
+void f2fs_fname_crypto_free_buffer(struct f2fs_str *);
+int f2fs_fname_setup_filename(struct inode *, const struct qstr *,
+				int lookup, struct f2fs_filename *);
+void f2fs_fname_free_filename(struct f2fs_filename *);
+#else
+static inline void f2fs_restore_and_release_control_page(struct page **p) { }
+static inline void f2fs_restore_control_page(struct page *p) { }
+
+static inline int __init f2fs_init_crypto(void) { return 0; }
+static inline void f2fs_exit_crypto(void) { }
+
+static inline int f2fs_has_encryption_key(struct inode *i) { return 0; }
+static inline int f2fs_get_encryption_info(struct inode *i) { return 0; }
+static inline void f2fs_fname_crypto_free_buffer(struct f2fs_str *p) { }
+
+static inline int f2fs_fname_setup_filename(struct inode *dir,
+					const struct qstr *iname,
+					int lookup, struct f2fs_filename *fname)
+{
+	memset(fname, 0, sizeof(struct f2fs_filename));
+	fname->usr_fname = iname;
+	fname->disk_name.name = (unsigned char *)iname->name;
+	fname->disk_name.len = iname->len;
+	return 0;
+}
+
+static inline void f2fs_fname_free_filename(struct f2fs_filename *fname) { }
+#endif
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 #endif

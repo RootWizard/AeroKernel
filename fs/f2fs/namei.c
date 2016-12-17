@@ -166,9 +166,18 @@ static int f2fs_link(struct dentry *old_dentry, struct inode *dir,
 		struct dentry *dentry)
 {
 	struct inode *inode = old_dentry->d_inode;
+<<<<<<< HEAD
 	struct super_block *sb = dir->i_sb;
 	struct f2fs_sb_info *sbi = F2FS_SB(sb);
 	int err, ilock;
+=======
+	struct f2fs_sb_info *sbi = F2FS_I_SB(dir);
+	int err;
+
+	if (f2fs_encrypted_inode(dir) &&
+		!f2fs_is_child_context_consistent_with_parent(dir, inode))
+		return -EPERM;
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
 	f2fs_balance_fs(sbi);
 
@@ -271,10 +280,32 @@ static int f2fs_symlink(struct inode *dir, struct dentry *dentry,
 	struct super_block *sb = dir->i_sb;
 	struct f2fs_sb_info *sbi = F2FS_SB(sb);
 	struct inode *inode;
+<<<<<<< HEAD
 	size_t symlen = strlen(symname) + 1;
 	int err, ilock;
 
 	f2fs_balance_fs(sbi);
+=======
+	size_t len = strlen(symname);
+	struct f2fs_str disk_link = FSTR_INIT((char *)symname, len + 1);
+	struct f2fs_encrypted_symlink_data *sd = NULL;
+	int err;
+
+	if (f2fs_encrypted_inode(dir)) {
+		err = f2fs_get_encryption_info(dir);
+		if (err)
+			return err;
+
+		if (!f2fs_encrypted_inode(dir))
+			return -EPERM;
+
+		disk_link.len = (f2fs_fname_encrypted_size(dir, len) +
+				sizeof(struct f2fs_encrypted_symlink_data));
+	}
+
+	if (disk_link.len > dir->i_sb->s_blocksize)
+		return -ENAMETOOLONG;
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
 	inode = f2fs_new_inode(dir, S_IFLNK | S_IRWXUGO);
 	if (IS_ERR(inode))
@@ -288,6 +319,36 @@ static int f2fs_symlink(struct inode *dir, struct dentry *dentry,
 	mutex_unlock_op(sbi, ilock);
 	if (err)
 		goto out;
+<<<<<<< HEAD
+=======
+	f2fs_unlock_op(sbi);
+	alloc_nid_done(sbi, inode->i_ino);
+
+	if (f2fs_encrypted_inode(inode)) {
+		struct qstr istr = QSTR_INIT(symname, len);
+		struct f2fs_str ostr;
+
+		sd = kzalloc(disk_link.len, GFP_NOFS);
+		if (!sd) {
+			err = -ENOMEM;
+			goto err_out;
+		}
+
+		err = f2fs_get_encryption_info(inode);
+		if (err)
+			goto err_out;
+
+		if (!f2fs_encrypted_inode(inode)) {
+			err = -EPERM;
+			goto err_out;
+		}
+
+		ostr.name = sd->encrypted_path;
+		ostr.len = disk_link.len;
+		err = f2fs_fname_usr_to_disk(inode, &istr, &ostr);
+		if (err < 0)
+			goto err_out;
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
 	err = page_symlink(inode, symname, symlen);
 	alloc_nid_done(sbi, inode->i_ino);
@@ -407,7 +468,16 @@ static int f2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	struct f2fs_dir_entry *new_entry;
 	int err = -ENOENT, ilock = -1;
 
+<<<<<<< HEAD
 	f2fs_balance_fs(sbi);
+=======
+	if ((old_dir != new_dir) && f2fs_encrypted_inode(new_dir) &&
+		!f2fs_is_child_context_consistent_with_parent(new_dir,
+							old_inode)) {
+		err = -EPERM;
+		goto out;
+	}
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
 	old_entry = f2fs_find_entry(old_dir, &old_dentry->d_name, &old_page);
 	if (!old_entry)
@@ -488,6 +558,103 @@ out:
 	return err;
 }
 
+<<<<<<< HEAD
+=======
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
+static void *f2fs_encrypted_follow_link(struct dentry *dentry,
+						struct nameidata *nd)
+{
+	struct page *cpage = NULL;
+	char *caddr, *paddr = NULL;
+	struct f2fs_str cstr = FSTR_INIT(NULL, 0);
+	struct f2fs_str pstr = FSTR_INIT(NULL, 0);
+	struct inode *inode = dentry->d_inode;
+	struct f2fs_encrypted_symlink_data *sd;
+	loff_t size = min_t(loff_t, i_size_read(inode), PAGE_SIZE - 1);
+	u32 max_size = inode->i_sb->s_blocksize;
+	int res;
+
+	res = f2fs_get_encryption_info(inode);
+	if (res)
+		return ERR_PTR(res);
+
+	cpage = read_mapping_page(inode->i_mapping, 0, NULL);
+	if (IS_ERR(cpage))
+		return cpage;
+	caddr = kmap(cpage);
+	caddr[size] = 0;
+
+	/* Symlink is encrypted */
+	sd = (struct f2fs_encrypted_symlink_data *)caddr;
+	cstr.name = sd->encrypted_path;
+	cstr.len = le16_to_cpu(sd->len);
+
+	/* this is broken symlink case */
+	if (unlikely(cstr.len == 0)) {
+		res = -ENOENT;
+		goto errout;
+	}
+
+	/* this is broken symlink case */
+	if (unlikely(cstr.name[0] == 0)) {
+		res = -ENOENT;
+		goto errout;
+	}
+
+	if ((cstr.len + sizeof(struct f2fs_encrypted_symlink_data) - 1) >
+								max_size) {
+		/* Symlink data on the disk is corrupted */
+		res = -EIO;
+		goto errout;
+	}
+	res = f2fs_fname_crypto_alloc_buffer(inode, cstr.len, &pstr);
+	if (res)
+		goto errout;
+
+	res = f2fs_fname_disk_to_usr(inode, NULL, &cstr, &pstr);
+	if (res < 0)
+		goto errout;
+
+	paddr = pstr.name;
+
+	/* Null-terminate the name */
+	paddr[res] = '\0';
+	nd_set_link(nd, paddr);
+
+	kunmap(cpage);
+	page_cache_release(cpage);
+	return NULL;
+errout:
+	f2fs_fname_crypto_free_buffer(&pstr);
+	kunmap(cpage);
+	page_cache_release(cpage);
+	return ERR_PTR(res);
+}
+
+void kfree_put_link(struct dentry *dentry, struct nameidata *nd,
+		void *cookie)
+{
+	char *s = nd_get_link(nd);
+	if (!IS_ERR(s))
+		kfree(s);
+}
+
+const struct inode_operations f2fs_encrypted_symlink_inode_operations = {
+	.readlink       = generic_readlink,
+	.follow_link    = f2fs_encrypted_follow_link,
+	.put_link       = kfree_put_link,
+	.getattr	= f2fs_getattr,
+	.setattr	= f2fs_setattr,
+#ifdef CONFIG_F2FS_FS_XATTR
+	.setxattr	= generic_setxattr,
+	.getxattr	= generic_getxattr,
+	.listxattr	= f2fs_listxattr,
+	.removexattr	= generic_removexattr,
+#endif
+};
+#endif
+
+>>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 const struct inode_operations f2fs_dir_inode_operations = {
 	.create		= f2fs_create,
 	.lookup		= f2fs_lookup,

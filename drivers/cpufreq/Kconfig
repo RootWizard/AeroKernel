@@ -123,16 +123,10 @@ config CPU_FREQ_DEFAULT_GOV_NIGHTMARE
 	help
 
 config CPU_FREQ_DEFAULT_GOV_DARKNESS
-	bool "darkness"
-	select CPU_FREQ_GOV_DARKNESS
-	help
-	Use the CPUfreq governor 'darkness' as default.
-
-config CPU_FREQ_DEFAULT_GOV_IRONACTIVE
-	bool "ironactive"
-	select CPU_FREQ_GOV_IRONACTIVE
-	help
-	Use the CPUfreq governor 'ironactive' as default.
+ 	bool "darkness"
+ 	select CPU_FREQ_GOV_DARKNESS
+ 	help
+ 	  Use the CPUFreq governor 'darkness' as default governor.
 
 endchoice
 
@@ -233,17 +227,20 @@ config CPU_FREQ_GOV_CONSERVATIVE
 
 	  If in doubt, say N.
 
-
 config CPU_FREQ_GOV_NIGHTMARE
 	tristate "'nightmare' cpufreq governor"
 	depends on CPU_FREQ
 
+config CPU_FREQ_GOV_IRONACTIVE
+ 	tristate "'nightmare' cpufreq governor"
+ 	depends on CPU_FREQ
+ 	help
+ 	  Use the CPUFreq governor 'ironactive'. This cpugovernor
+ 	  is based on the 'interactive' governor with many changes made by
+ 	  CAF.
+
 config CPU_FREQ_GOV_DARKNESS
 	tristate "'darkness' cpufreq governor"
-	depends on CPU_FREQ
-
-config CPU_FREQ_GOV_IRONACTIVE
-	tristate "'ironactive' cpufreq governor"
 	depends on CPU_FREQ
 
 config CPU_BOOST

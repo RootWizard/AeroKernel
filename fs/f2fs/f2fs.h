@@ -36,6 +36,7 @@
 			set_sbi_flag(sbi, SBI_NEED_FSCK);		\
 		}							\
 	} while (0)
+#define f2fs_down_write(x, y)	down_write(x)
 #endif
 >>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
@@ -648,9 +649,7 @@ static inline void clear_ckpt_flags(struct f2fs_checkpoint *cp, unsigned int f)
 
 static inline void mutex_lock_all(struct f2fs_sb_info *sbi)
 {
-	int i = 0;
-	for (; i < NR_GLOBAL_LOCKS; i++)
-		mutex_lock(&sbi->fs_lock[i]);
+	f2fs_down_write(&sbi->cp_rwsem, &sbi->cp_mutex);
 }
 
 static inline void mutex_unlock_all(struct f2fs_sb_info *sbi)

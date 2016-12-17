@@ -558,8 +558,6 @@ out:
 	return err;
 }
 
-<<<<<<< HEAD
-=======
 #ifdef CONFIG_F2FS_FS_ENCRYPTION
 static void *f2fs_encrypted_follow_link(struct dentry *dentry,
 						struct nameidata *nd)

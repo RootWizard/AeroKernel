@@ -260,9 +260,6 @@ static void truncate_partial_data_page(struct inode *inode, u64 from)
 	}
 	wait_on_page_writeback(page);
 	zero_user(page, offset, PAGE_CACHE_SIZE - offset);
-<<<<<<< HEAD
-	set_page_dirty(page);
-=======
 	if (!cache_only || !f2fs_encrypted_inode(inode) || !S_ISREG(inode->i_mode))
 		set_page_dirty(page);
 >>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto

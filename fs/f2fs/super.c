@@ -106,7 +106,6 @@ static struct inode *f2fs_alloc_inode(struct super_block *sb)
 #ifdef CONFIG_F2FS_FS_ENCRYPTION
 	fi->i_crypt_info = NULL;
 #endif
->>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	return &fi->vfs_inode;
 }
 
@@ -300,15 +299,11 @@ static struct super_operations f2fs_sops = {
 	.freeze_fs	= f2fs_freeze,
 	.unfreeze_fs	= f2fs_unfreeze,
 	.statfs		= f2fs_statfs,
+	.remount_fs	= f2fs_remount,
 };
 
-<<<<<<< HEAD
-static struct inode *f2fs_nfs_get_inode(struct super_block *sb,
-		u64 ino, u32 generation)
-=======
 #ifdef CONFIG_F2FS_FS_ENCRYPTION
 static int f2fs_get_context(struct inode *inode, void *ctx, size_t len)
->>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 {
 	struct f2fs_sb_info *sbi = F2FS_SB(sb);
 	struct inode *inode;
@@ -870,8 +865,6 @@ static void __exit exit_f2fs_fs(void)
 {
 	f2fs_destroy_root_stats();
 	unregister_filesystem(&f2fs_fs_type);
-<<<<<<< HEAD
-=======
 	f2fs_exit_crypto();
 	destroy_extent_cache();
 >>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto

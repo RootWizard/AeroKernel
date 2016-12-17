@@ -310,6 +310,5 @@ out_clear:
 	if (fi->i_crypt_info)
 		f2fs_free_encryption_info(inode, fi->i_crypt_info);
 #endif
->>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	clear_inode(inode);
 }

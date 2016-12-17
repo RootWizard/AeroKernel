@@ -10,4 +10,3 @@ f2fs-$(CONFIG_F2FS_FS_POSIX_ACL) += acl.o
 f2fs-$(CONFIG_F2FS_IO_TRACE) += trace.o
 f2fs-$(CONFIG_F2FS_FS_ENCRYPTION) += crypto_policy.o crypto.o \
 		crypto_key.o crypto_fname.o
->>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto

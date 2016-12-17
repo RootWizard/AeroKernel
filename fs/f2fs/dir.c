@@ -95,16 +95,6 @@ static struct f2fs_dir_entry *find_in_block(struct page *dentry_page,
 	return true;
 }
 
-<<<<<<< HEAD
-static struct f2fs_dir_entry *find_in_block(struct page *dentry_page,
-			const char *name, size_t namelen, int *max_slots,
-			f2fs_hash_t namehash, struct page **res_page)
-{
-	struct f2fs_dir_entry *de;
-	unsigned long bit_pos, end_pos, next_pos;
-	struct f2fs_dentry_block *dentry_blk = kmap(dentry_page);
-	int slots;
-=======
 struct f2fs_dir_entry *find_target_dentry(struct f2fs_filename *fname,
 			f2fs_hash_t namehash, int *max_slots,
 			struct f2fs_dentry_ptr *d)
@@ -223,10 +213,6 @@ struct f2fs_dir_entry *f2fs_find_entry(struct inode *dir,
 	f2fs_hash_t name_hash;
 	unsigned int max_depth;
 	unsigned int level;
-<<<<<<< HEAD
-
-	if (namelen > F2FS_NAME_LEN)
-=======
 	struct f2fs_filename fname;
 	int err;
 
@@ -259,7 +245,6 @@ struct f2fs_dir_entry *f2fs_find_entry(struct inode *dir,
 =======
 out:
 	f2fs_fname_free_filename(&fname);
->>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	return de;
 }
 
@@ -848,7 +833,6 @@ static int f2fs_dir_open(struct inode *inode, struct file *filp)
 {
 	if (f2fs_encrypted_inode(inode))
 		return f2fs_get_encryption_info(inode) ? -EACCES : 0;
->>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 	return 0;
 }
 

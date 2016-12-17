@@ -160,7 +160,6 @@ static inline int update_sits_in_cursum(struct f2fs_summary_block *rs, int i)
 		_IOW('f', 20, __u8[16])
 #define F2FS_IOC_GET_ENCRYPTION_POLICY					\
 		_IOW('f', 21, struct f2fs_encryption_policy)
->>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 
 #if defined(__KERNEL__) && defined(CONFIG_COMPAT)
 /*
@@ -319,7 +318,6 @@ struct f2fs_inode_info {
 	/* Encryption params */
 	struct f2fs_crypt_info *i_crypt_info;
 #endif
->>>>>>> parent of ec941cb... fs crypto: move per-file encryption from f2fs tree to fs/crypto
 };
 
 static inline void get_extent_info(struct extent_info *ext,

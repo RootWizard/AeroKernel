@@ -45,10 +45,10 @@
 				<26 512 0 4915200>,  <89 662 0 3200000>,     // gpu=240 bus=307.2
 				<26 512 0 6144000>,  <89 662 0 3200000>,     // gpu=240 bus=384
 
-				<26 512 0 3200000>,  <89 662 0 4256000>,     // gpu=266 bus=200
-				<26 512 0 4915200>,  <89 662 0 4256000>,     // gpu=266 bus=307.2
-				<26 512 0 6144000>,  <89 662 0 4256000>,     // gpu=266 bus=384
-				<26 512 0 8448000>,  <89 662 0 4256000>,     // gpu=266 bus=528
+				<26 512 0 3200000>,  <89 662 0 4800000>,     // gpu=300 bus=200
+				<26 512 0 4915200>,  <89 662 0 4800000>,     // gpu=300 bus=307.2
+				<26 512 0 6144000>,  <89 662 0 4800000>,     // gpu=300 bus=384
+				<26 512 0 8448000>,  <89 662 0 4800000>,     // gpu=300 bus=528
 
 				<26 512 0 6144000>,  <89 662 0 5600000>,     // gpu=389 bus=384
 				<26 512 0 8448000>,  <89 662 0 5600000>,     // gpu=389 bus=528
@@ -127,7 +127,32 @@
 
 			qcom,gpu-pwrlevel@6 {
 				reg = <6>;
+<<<<<<< HEAD
 				qcom,gpu-freq = <50000000>;
+=======
+				qcom,gpu-freq = <300000000>;
+				qcom,bus-freq = <9>;
+				qcom,io-fraction = <100>;
+			};
+
+			qcom,gpu-pwrlevel@7 {
+				reg = <7>;
+				qcom,gpu-freq = <200000000>;
+				qcom,bus-freq = <5>;
+				qcom,io-fraction = <100>;
+			};
+
+			qcom,gpu-pwrlevel@8 {
+				reg = <8>;
+				qcom,gpu-freq = <166000000>;
+				qcom,bus-freq = <2>;
+				qcom,io-fraction = <100>;
+			};
+
+			qcom,gpu-pwrlevel@9 {
+				reg = <9>;
+				qcom,gpu-freq = <27000000>;
+>>>>>>> parent of ec45671... apq8084-gpu: Reduce frequency on boot 300 MHz => 266 MHz
 				qcom,bus-freq = <0>;
 				qcom,io-fraction = <0>;
 			};

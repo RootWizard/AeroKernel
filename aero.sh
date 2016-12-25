@@ -6,7 +6,7 @@ echo "Cleaning up..."
 make clean && make mrproper
 echo "Building now..."
 make aero_defconfig
-make -j12
+make -j16
 
 if [ ! -f ./arch/arm/boot/zImage-dtb ]; then 
 	echo "Build has failed, no zImage found..."
@@ -15,9 +15,9 @@ else
 	mv ./arch/arm/boot/zImage-dtb $HOME/android/kernel/anykernel
 	cd $HOME/android/kernel/anykernel 
 	mv .git $HOME/android/kernel/temp && mv README.md $HOME/android/kernel/temp
-    zip -r -9 aero_v1.zip .
+    zip -r -9 aero_v.zip .
 	mv $HOME/android/kernel/temp/.git $HOME/android/kernel/anykernel && mv $HOME/android/kernel/temp/README.md $HOME/android/kernel/anykernel
-	mv aero_v1.zip $HOME/android/kernel/out && cd $HOME/android/kernel/out 
+	mv aero_v.zip $HOME/android/kernel/out && cd $HOME/android/kernel/out 
 	echo "Done Zipping. Congrats!"
 
 fi
